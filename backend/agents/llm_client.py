@@ -135,7 +135,34 @@ def _call_gemini(messages: list[dict], *, temperature: float, max_output_tokens:
             raise _RateLimitError(str(exc)) from exc
         raise
 
+    # A response cut off mid-output (most commonly MAX_TOKENS, e.g. the
+    # Coder asked to emit a large whole-file rewrite) produces truncated
+    # JSON downstream -- json.loads then fails with a confusing, unrelated-
+    # looking error like "Unterminated string at char 44" that gives no
+    # hint the real cause was an output-length budget, not malformed
+    # output. Surfacing the finish_reason directly here makes that
+    # diagnosable without digging through the raw response.
+    reason = _finish_reason(response)
+    if reason and reason != "STOP":
+        raise LLMError(
+            f"gemini response did not finish normally (finish_reason={reason}, "
+            f"max_output_tokens={max_output_tokens}) -- likely truncated output "
+            "rather than a malformed request; increase max_output_tokens for this "
+            "call if the requested content is legitimately long"
+        )
+
     return LLMResponse(text=response.text, provider="gemini", model=settings.GEMINI_MODEL, raw=_safe_raw(response))
+
+
+def _finish_reason(response: Any) -> str | None:
+    try:
+        candidates = response.candidates
+        if not candidates:
+            return None
+        reason = candidates[0].finish_reason
+        return reason.value if hasattr(reason, "value") else (str(reason) if reason else None)
+    except (AttributeError, IndexError):
+        return None
 
 
 def _call_groq(messages: list[dict], *, temperature: float, max_output_tokens: int) -> LLMResponse:

@@ -5,9 +5,9 @@ from .models import AgentRun, Task
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "status", "short_description", "repo_path", "created_at", "updated_at")
-    list_filter = ("status",)
-    search_fields = ("description", "repo_path")
+    list_display = ("id", "user", "status", "short_description", "github_url", "is_favorite", "is_archived", "created_at", "updated_at")
+    list_filter = ("status", "is_favorite", "is_archived")
+    search_fields = ("description", "title", "github_url", "user__email")
     readonly_fields = ("created_at", "updated_at")
 
     @admin.display(description="description")
@@ -19,6 +19,6 @@ class TaskAdmin(admin.ModelAdmin):
 class AgentRunAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "agent_type", "provider", "status", "retry_count", "duration_ms", "started_at")
     list_filter = ("agent_type", "provider", "status")
-    search_fields = ("task__description",)
+    search_fields = ("task__description", "task__user__email")
     readonly_fields = ("started_at",)
     ordering = ("-started_at",)

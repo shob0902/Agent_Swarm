@@ -91,6 +91,7 @@ a {
   border: none;
   color: var(--text-primary);
   font: inherit;
+  text-decoration: none;
   transition: transform 0.2s var(--ease-cushion), box-shadow 0.2s var(--ease-cushion);
 }
 

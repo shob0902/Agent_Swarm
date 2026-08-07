@@ -1,84 +1,52 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import './App.css'
+import { AuthProvider } from './context/AuthContext'
+import RequireAuth from './components/RequireAuth'
 import LoadingScreen from './components/LoadingScreen'
 import LandingPage from './components/LandingPage'
-import TaskForm from './components/TaskForm'
-import TaskList from './components/TaskList'
-import AgentTrace from './components/AgentTrace'
-import { listTasks } from './api/client'
+import LoginPage from './pages/LoginPage'
+import SignupPage from './pages/SignupPage'
+import AuthCallbackPage from './pages/AuthCallbackPage'
+import DashboardPage from './pages/DashboardPage'
 
 const THEME_KEY = 'agent-swarm-theme'
-const TASK_LIST_POLL_MS = 3000
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light')
-  const [view, setView] = useState('loading') // 'loading' | 'landing' | 'dashboard'
-  const [tasks, setTasks] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
+  // One-time intro flourish gating the whole app on first mount, regardless
+  // of which route the user lands on (deep link, refresh, etc).
+  const [introDone, setIntroDone] = useState(false)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
 
-  useEffect(() => {
-    if (view !== 'dashboard') return // no need to poll while the landing page is showing
-
-    const fetchTasks = async () => {
-      try {
-        const data = await listTasks()
-        const results = data.results ?? data // handle paginated or plain-array responses
-        setTasks(results)
-      } catch {
-        // transient poll failure -- next tick retries
-      }
-    }
-    fetchTasks()
-    const interval = setInterval(fetchTasks, TASK_LIST_POLL_MS)
-    return () => clearInterval(interval)
-  }, [view])
-
   const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'))
 
-  if (view === 'loading') {
-    return <LoadingScreen onDone={() => setView('landing')} />
+  if (!introDone) {
+    return <LoadingScreen onDone={() => setIntroDone(true)} />
   }
-
-  if (view === 'landing') {
-    return <LandingPage theme={theme} onToggleTheme={toggleTheme} onEnter={() => setView('dashboard')} />
-  }
-
-  const selectedTask = tasks.find((t) => t.id === selectedId)
 
   return (
-    <div className="app-shell view-fade-in">
-      <header className="app-header">
-        <button
-          className="neu-flat neu-pressable"
-          onClick={() => setView('landing')}
-          style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
-        >
-          ← Home
-        </button>
-        <button
-          className="neu-flat neu-pressable"
-          onClick={toggleTheme}
-          style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
-        >
-          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-        </button>
-      </header>
-
-      <main className="app-grid">
-        <div className="app-column">
-          <TaskForm onCreated={(task) => { setTasks((prev) => [task, ...prev]); setSelectedId(task.id) }} />
-          <TaskList tasks={tasks} selectedId={selectedId} onSelect={setSelectedId} />
-        </div>
-
-        <div className="app-column">
-          <AgentTrace taskId={selectedId} taskStatus={selectedTask?.status} theme={theme} />
-        </div>
-      </main>
-    </div>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage theme={theme} onToggleTheme={toggleTheme} />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/auth/callback/:provider" element={<AuthCallbackPage />} />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <DashboardPage theme={theme} onToggleTheme={toggleTheme} />
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   )
 }

@@ -1,21 +1,27 @@
 import { useState } from 'react'
 import { createTask } from '../api/client'
 
+const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/
+
 export default function TaskForm({ onCreated }) {
   const [description, setDescription] = useState('')
-  const [repoPath, setRepoPath] = useState('')
+  const [githubUrl, setGithubUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!description.trim() || !repoPath.trim()) return
+    if (!description.trim() || !githubUrl.trim()) return
+    if (!GITHUB_URL_RE.test(githubUrl.trim())) {
+      setError('Must be a public GitHub repo URL, e.g. https://github.com/owner/repo')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
-      const task = await createTask({ description, repo_path: repoPath })
+      const task = await createTask({ description, github_url: githubUrl.trim() })
       setDescription('')
-      setRepoPath('')
+      setGithubUrl('')
       onCreated?.(task)
     } catch (err) {
       setError(err?.response?.data ? JSON.stringify(err.response.data) : 'Failed to create task')
@@ -40,19 +46,19 @@ export default function TaskForm({ onCreated }) {
       </label>
 
       <label style={{ display: 'flex', flexDirection: 'column', gap: 6, color: 'var(--text-secondary)', fontSize: 13 }}>
-        Repo path
+        GitHub repo URL
         <input
-          type="text"
-          placeholder="C:\path\to\local\git\repo"
-          value={repoPath}
-          onChange={(e) => setRepoPath(e.target.value)}
+          type="url"
+          placeholder="https://github.com/owner/repo"
+          value={githubUrl}
+          onChange={(e) => setGithubUrl(e.target.value)}
           required
         />
       </label>
 
       {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
 
-      <button type="submit" disabled={submitting} className="neu-flat neu-pressable" style={{ padding: '10px 20px', alignSelf: 'flex-start', color: 'var(--accent)', fontWeight: 600 }}>
+      <button type="submit" disabled={submitting} className="neu-flat neu-pressable" style={{ padding: '10px 20px', minHeight: 44, alignSelf: 'flex-start', color: 'var(--accent)', fontWeight: 600 }}>
         {submitting ? 'Submitting…' : 'Run Agent Swarm'}
       </button>
     </form>

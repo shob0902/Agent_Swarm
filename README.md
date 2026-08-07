@@ -112,14 +112,24 @@ Open the printed Vite URL (default `http://localhost:5173`).
 > Reviewer (Groq, 0.4s, approved), landed on `done` on the first attempt
 > (no retries needed), and the sandbox container was cleaned up
 > automatically. `demo_repo` was reset to its pristine failing-test state
-> afterward.
+> afterward. (This run predates the switch to `github_url` below -- tasks
+> pointed at a `repo_path` on the server's own disk at the time.)
+
+Tasks now take a **public GitHub repo URL** (`github_url`) instead of a
+local filesystem path -- the pipeline shallow-clones it into a throwaway
+temp directory at run time (`services/repo.py`) and cleans it up when the
+run ends, so it works against anyone's repo, not just one already checked
+out on the machine running Django/Celery. Private repos and non-GitHub
+hosts are rejected up front.
 
 ## Running the demo
 
 1. With Redis, the sandbox image, `runserver`, the Celery worker, and
    `npm run dev` all up, open the UI.
-2. Submit a task with the description from [`demo_repo/README.md`](demo_repo/README.md)
-   and `repo_path` set to this repo's absolute `demo_repo` folder.
+2. Push `demo_repo/` to a public GitHub repo of your own (or point at any
+   public repo with a failing test suite). Submit a task with the
+   description from [`demo_repo/README.md`](demo_repo/README.md) and
+   `github_url` set to that repo's URL, e.g. `https://github.com/<you>/demo_repo`.
 3. Watch the Agent Trace timeline: Planner → Coder → Tester (retrying on
    failure) → Reviewer, ending `done` with the diff shown and all three
    tests in `demo_repo/test_app.py` passing.

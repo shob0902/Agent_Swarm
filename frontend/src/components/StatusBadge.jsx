@@ -1,4 +1,4 @@
-// Color-coded status pill shared by TaskList and AgentTrace.
+// Color-coded status pill shared by TaskHistorySidebar and AgentTrace.
 // pending -> muted/gray, in-progress stages -> info/blue, done -> success/green, failed -> danger/red.
 const COLOR_BY_STATUS = {
   pending: 'var(--text-muted)',

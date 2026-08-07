@@ -9,10 +9,11 @@ Output format: strict JSON {"files": [{"path", "content"}, ...]} where
 over unified-diff output because LLM-generated diffs are fragile to parse
 (context-line drift, off-by-one hunks); whole-file rewrites are simple to
 apply and simple to validate. The Coder agent writes these directly into
-the mounted repo_path *before* the sandbox is invoked for testing
-(Section 7), then a real `git diff` against the repo is computed from the
-result -- so the diff shown to the Reviewer and the frontend is always a
-genuine, well-formed diff even though the model never produced one itself.
+the local clone (task.local_path, see services/repo.py) *before* the
+sandbox is invoked for testing (Section 7), then a real `git diff` against
+the clone is computed from the result -- so the diff shown to the Reviewer
+and the frontend is always a genuine, well-formed diff even though the
+model never produced one itself.
 """
 from __future__ import annotations
 
@@ -37,11 +38,11 @@ _PATH_TOKEN_RE = re.compile(r"[\w./-]+\.\w+")
 
 def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> dict:
     """Selects relevant files, calls Gemini for whole-file rewrites, applies
-    them to task.repo_path, and returns {"diff": str, "files": [path, ...],
+    them to task.local_path, and returns {"diff": str, "files": [path, ...],
     "file_diffs": [{"path", "old_content", "new_content"}, ...]}.
     """
-    relevant = _select_relevant_files(task.repo_path, plan)
-    file_contents = _format_file_contents(task.repo_path, relevant)
+    relevant = _select_relevant_files(task.local_path, plan)
+    file_contents = _format_file_contents(task.local_path, relevant)
     retry_context = (
         f"\nPrior test run failed with this output -- fix this specifically:\n{prior_test_output[:3000]}\n"
         if prior_test_output
@@ -67,9 +68,18 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
                 {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
                 {"role": "user", "content": prompt},
             ],
+            # Unlike the Planner's step list or the Reviewer's verdict, this
+            # response embeds one or more COMPLETE rewritten files as JSON
+            # string values -- the default 4096 is easy to blow through on
+            # anything beyond a short file (JSON-escaping alone inflates
+            # length), which truncates mid-string and fails downstream as a
+            # cryptic JSON parse error rather than an obvious token-budget
+            # one. 16384 gives real headroom; llm_client.call_llm now also
+            # raises a clear error if a response is cut off before this.
+            max_output_tokens=16384,
         )
         files = _validate_files(response.text)
-        diff, file_diffs = _apply_files_and_diff(task.repo_path, files)
+        diff, file_diffs = _apply_files_and_diff(task.local_path, files)
         result = {"diff": diff, "files": [f["path"] for f in files], "file_diffs": file_diffs}
         run.output = {"raw_response": response.text, "raw": response.raw, **result}
         return result

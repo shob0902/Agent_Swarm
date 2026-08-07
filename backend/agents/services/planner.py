@@ -26,7 +26,7 @@ def build_file_tree(repo_path: str) -> str:
     dirs and capped at MAX_TREE_ENTRIES so it stays cheap to send to the LLM."""
     root = Path(repo_path)
     if not root.exists():
-        return "(repo_path does not exist)"
+        return "(local checkout does not exist)"
 
     lines: list[str] = []
     for path in sorted(root.rglob("*")):
@@ -48,7 +48,7 @@ def run_planner(task) -> dict:
     fails (auth, exhausted retries, etc). Both are caught by the pipeline
     task, which is what actually marks the Task failed.
     """
-    file_tree = build_file_tree(task.repo_path)
+    file_tree = build_file_tree(task.local_path)
     prompt = load_prompt("planner_prompt", task_description=task.description, file_tree=file_tree)
     input_context = {"task_description": task.description, "file_tree": file_tree}
 

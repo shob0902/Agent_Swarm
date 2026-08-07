@@ -1,3 +1,5 @@
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import './LandingPage.css'
 
 const STEPS = [
@@ -7,30 +9,44 @@ const STEPS = [
   { agent: 'Reviewer', provider: 'Groq', blurb: 'Gives the final diff a fast sanity check against the plan before marking the task done.' },
 ]
 
-export default function LandingPage({ theme, onToggleTheme, onEnter }) {
+export default function LandingPage({ theme, onToggleTheme }) {
+  const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+
   return (
     <div className="landing view-fade-in">
       <header className="landing-header anim-fade-up">
         <span className="landing-kicker">Multi-agent orchestration</span>
-        <button
-          className="neu-flat neu-pressable"
-          onClick={onToggleTheme}
-          style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
-        >
-          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!isAuthenticated && (
+            <Link to="/login" className="neu-flat neu-pressable" style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}>
+              Sign in
+            </Link>
+          )}
+          <button
+            className="neu-flat neu-pressable"
+            onClick={onToggleTheme}
+            style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
+          >
+            {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
+          </button>
+        </div>
       </header>
 
       <section className="landing-hero anim-fade-up" style={{ animationDelay: '0.08s' }}>
         <h1>Autonomous Coding Agent Swarm</h1>
         <p>
-          Hand it a task description and a local git repo. Four cooperating agents —
+          Hand it a task description and a public GitHub repo. Four cooperating agents —
           Planner, Coder, Tester, and Reviewer — plan the change, write it, run your
           real test suite in an isolated sandbox, retry on failure, and hand back a
-          reviewed diff. Every decision is logged and visible in a live agent trace.
+          reviewed diff. Every decision is logged and visible in a live agent trace,
+          private to your account.
         </p>
-        <button className="neu-flat neu-pressable landing-cta" onClick={onEnter}>
-          Open Dashboard →
+        <button
+          className="neu-flat neu-pressable landing-cta"
+          onClick={() => navigate(isAuthenticated ? '/dashboard' : '/signup')}
+        >
+          {isAuthenticated ? 'Open Dashboard →' : 'Get Started →'}
         </button>
       </section>
 

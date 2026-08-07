@@ -7,13 +7,24 @@
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 28px;
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 22px;
+}
+
+/* Only relevant once TaskHistorySidebar becomes an off-canvas drawer
+   (see TaskHistorySidebar.css's matching 860px breakpoint) -- hidden on
+   desktop where the sidebar is always visible in the grid. */
+.app-menu-toggle {
+  display: none;
+  padding: 8px 12px;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .app-grid {
@@ -30,7 +41,30 @@
 }
 
 @media (max-width: 860px) {
+  .app-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .app-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-shell {
+    padding: 20px 14px 48px;
+  }
+}
+
+/* Narrow phones: the header (menu toggle, Home, theme toggle, user menu)
+   doesn't comfortably fit on one line with a name label -- drop the name,
+   keep just the avatar, and let neu-flat buttons shrink their padding. */
+@media (max-width: 480px) {
+  .user-menu-name {
+    display: none;
+  }
+
+  .app-header .neu-flat {
+    padding: 8px 10px;
   }
 }

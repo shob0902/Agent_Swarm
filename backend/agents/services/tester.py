@@ -37,12 +37,12 @@ def detect_test_command(repo_path: str) -> list[str]:
 
 
 def run_tester(task, coder_result: dict, attempt: int = 0) -> TestResult:
-    command = detect_test_command(task.repo_path)
+    command = detect_test_command(task.local_path)
     input_context = {"command": command, "changed_files": coder_result.get("files", [])}
 
     with track_run(task, agent_type="tester", provider="none", input_context=input_context, retry_count=attempt) as run:
         try:
-            sandbox_result = run_in_sandbox(task.repo_path, command)
+            sandbox_result = run_in_sandbox(task.local_path, command)
         except SandboxError as exc:
             run.output = {"command": command, "error": str(exc)}
             return TestResult(passed=False, output=str(exc), exit_code=-1)

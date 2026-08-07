@@ -234,13 +234,13 @@
 <p>
 Agent Swarm automates a coding task the way a small engineering team would divide it up —
 except every "team member" is a specialized agent, and the whole exchange is logged.
-You give it a plain-English task description and the path to a local git repository. From
+You give it a plain-English task description and the URL of a public GitHub repository. From
 there, four cooperating agents take over:
 </p>
 
 <ul>
   <li><strong>Planner</strong> reads the task and the repo's file tree, and produces an ordered, concrete implementation plan.</li>
-  <li><strong>Coder</strong> follows that plan and rewrites the files it calls for, directly in your repo.</li>
+  <li><strong>Coder</strong> follows that plan and rewrites the files it calls for, in a throwaway local clone of your repo (nothing is pushed back — the diff is shown to you to apply yourself).</li>
   <li><strong>Tester</strong> runs your <em>real</em> test suite inside an isolated, network-disabled Docker container and reports pass/fail — no LLM involved, because testing should be deterministic.</li>
   <li><strong>Reviewer</strong> gives the final diff a fast sanity check against the plan before the task is marked done.</li>
 </ul>
@@ -422,7 +422,7 @@ Django admin (<code>/admin/</code>), which needed zero extra frontend work to be
 <h4>Data model</h4>
 <table>
   <tr><th>Model</th><th>Key fields</th></tr>
-  <tr><td><strong>Task</strong></td><td><code>description</code>, <code>repo_path</code>, <code>status</code> (pending → planning → coding → testing → review → done/failed)</td></tr>
+  <tr><td><strong>Task</strong></td><td><code>description</code>, <code>github_url</code>, <code>status</code> (pending → planning → coding → testing → review → done/failed)</td></tr>
   <tr><td><strong>AgentRun</strong></td><td><code>task</code> (FK), <code>agent_type</code>, <code>provider</code>, <code>input_context</code>, <code>output</code>, <code>status</code>, <code>retry_count</code>, <code>duration_ms</code></td></tr>
 </table>
 </section>
@@ -527,7 +527,8 @@ again afterward, reset the repo first so the tests are failing again: <code>cd d
 <section>
 <h2>7. Non-Goals (v1)</h2>
 <ul>
-  <li>No multi-repo support — one <code>repo_path</code> per task</li>
+  <li>No multi-repo support — one <code>github_url</code> per task</li>
+  <li>Public GitHub repos only — no private-repo auth, no non-GitHub git hosts</li>
   <li>No authentication / user accounts — single-user local tool</li>
   <li>No LLM-based test generation — the Tester only runs a repo's existing tests</li>
   <li>No code execution outside the sandboxed container, ever</li>
