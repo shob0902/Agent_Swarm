@@ -1,0 +1,148 @@
+.landing {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.landing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 48px;
+}
+
+.landing-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.landing-hero {
+  text-align: center;
+  margin-bottom: 56px;
+}
+
+.landing-hero h1 {
+  font-size: 36px;
+  margin: 0 0 18px;
+  background: linear-gradient(100deg, var(--text-primary) 20%, var(--accent) 50%, var(--text-primary) 80%);
+  background-size: 220% auto;
+  background-position: 0% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: landing-title-sweep 7s ease-in-out infinite;
+}
+
+@keyframes landing-title-sweep {
+  0%, 100% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+}
+
+.landing-hero p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 640px;
+  margin: 0 auto 28px;
+}
+
+.landing-cta {
+  position: relative;
+  padding: 14px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow: hidden;
+}
+
+.landing-cta::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--accent) 35%, transparent) 50%, transparent 70%);
+  background-size: 220% 100%;
+  background-position: 130% 0;
+  transition: background-position 0.7s var(--ease-cushion);
+  pointer-events: none;
+}
+
+.landing-cta:hover::after {
+  background-position: -30% 0;
+}
+
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 48px;
+}
+
+.landing-step {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.3s var(--ease-cushion), box-shadow 0.3s var(--ease-cushion);
+}
+
+.landing-step:hover {
+  transform: translateY(-5px);
+  box-shadow: 11px 11px 20px var(--shadow-dark), -11px -11px 20px var(--shadow-light);
+}
+
+.landing-step:hover .landing-step-index {
+  box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light), 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.landing-step-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--base);
+  box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light);
+  margin-bottom: 6px;
+  transition: box-shadow 0.3s var(--ease-cushion);
+}
+
+.landing-step h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.landing-step-provider {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.landing-step p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.landing-footnote {
+  text-align: center;
+}
+
+.landing-footnote p {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .landing-hero h1 {
+    font-size: 28px;
+  }
+}

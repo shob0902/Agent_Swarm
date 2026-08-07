@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Agent Swarm — Project Documentation</title>
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 18mm;
+  }
+
+  :root {
+    --ink: #23242E;
+    --ink-soft: #565A6E;
+    --ink-muted: #8A8DA0;
+    --accent: #6C6FC4;
+    --accent-soft: #EEEEFA;
+    --line: #E1E2EC;
+    --bg-panel: #F6F6FB;
+    --code-bg: #F1F1F8;
+    --success: #4E9C74;
+    --danger: #C5605F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    font-size: 10.6pt;
+    line-height: 1.55;
+  }
+
+  h1, h2, h3, h4 { font-weight: 700; color: var(--ink); margin: 0 0 8px; }
+  h2 { break-before: page; }
+  section:first-of-type h2 { break-before: avoid; }
+  h1 { font-size: 27pt; }
+  h2 { font-size: 16pt; padding-bottom: 6px; border-bottom: 2px solid var(--accent); margin-bottom: 14px; }
+  h3 { font-size: 12.5pt; margin-top: 20px; color: var(--accent); }
+  h4 { font-size: 10.6pt; margin-top: 14px; }
+  p { margin: 0 0 10px; color: var(--ink-soft); }
+  ul, ol { margin: 0 0 12px; padding-left: 20px; color: var(--ink-soft); }
+  li { margin-bottom: 4px; }
+  strong { color: var(--ink); }
+  code { font-family: "Consolas", monospace; font-size: 9.3pt; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; color: #4A3F9E; white-space: nowrap; }
+  pre code { white-space: pre; }
+  a { color: var(--accent); }
+
+  section { break-inside: avoid-page; }
+  .keep-together { break-inside: avoid; }
+
+  /* --- Cover page --- */
+  .cover {
+    height: 253mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .cover .kicker {
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  .cover h1 {
+    line-height: 1.15;
+    max-width: 480px;
+    margin-bottom: 16px;
+  }
+  .cover .tagline {
+    font-size: 13pt;
+    color: var(--ink-soft);
+    max-width: 440px;
+    margin-bottom: 40px;
+  }
+  .cover .meta {
+    display: flex;
+    gap: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    width: 100%;
+    max-width: 480px;
+  }
+  .cover .meta div { font-size: 9pt; }
+  .cover .meta .label { color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px; }
+  .cover .meta .value { color: var(--ink); font-weight: 600; }
+  .cover .pipeline-mini {
+    margin-top: 46px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .cover .pipeline-mini span.node {
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 6px 14px;
+    border-radius: 20px;
+  }
+  .cover .pipeline-mini span.arrow { color: var(--ink-muted); }
+
+  /* --- Callouts --- */
+  .callout {
+    background: var(--bg-panel);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 14px 0;
+  }
+  .callout.warn { border-left-color: #C99A3E; background: #FBF5E8; }
+  .callout h4 { margin-top: 0; margin-bottom: 6px; }
+  .callout p:last-child, .callout ul:last-child, .callout ol:last-child { margin-bottom: 0; }
+
+  /* --- Tables --- */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 9.6pt; }
+  th { text-align: left; background: var(--accent-soft); color: var(--accent); padding: 7px 10px; font-weight: 700; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--line); color: var(--ink-soft); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: var(--ink); }
+
+  /* --- Code blocks --- */
+  pre {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: "Consolas", monospace;
+    font-size: 9pt;
+    line-height: 1.5;
+    color: #3A2F8F;
+    margin: 8px 0 14px;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* --- Step list --- */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 34px;
+    margin-bottom: 14px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0; top: 0;
+    width: 22px; height: 22px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-size: 9.5pt;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .steps li strong { display: block; color: var(--ink); margin-bottom: 2px; }
+
+  /* --- Screenshot figures --- */
+  figure { margin: 12px 0 18px; break-inside: avoid; }
+  figure img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    display: block;
+  }
+  figcaption { font-size: 9pt; color: var(--ink-muted); margin-top: 6px; text-align: center; }
+
+  /* --- Two column grid --- */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .badge {
+    display: inline-block;
+    font-size: 8.3pt;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    margin-right: 4px;
+  }
+
+  footer.page-footer { margin-top: 20px; font-size: 8.3pt; color: var(--ink-muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<div class="cover">
+  <div class="kicker">Project Documentation</div>
+  <h1>Autonomous Coding<br/>Agent Swarm</h1>
+  <div class="tagline">
+    A multi-agent orchestration system that plans, writes, tests, and reviews
+    a real code change end-to-end — with every decision logged and visible.
+  </div>
+
+  <div class="pipeline-mini">
+    <span class="node">Planner</span><span class="arrow">→</span>
+    <span class="node">Coder</span><span class="arrow">→</span>
+    <span class="node">Tester</span><span class="arrow">→</span>
+    <span class="node">Reviewer</span>
+  </div>
+
+  <div class="meta">
+    <div>
+      <div class="label">Backend</div>
+      <div class="value">Django 5 · DRF · Celery · Redis</div>
+    </div>
+    <div>
+      <div class="label">Frontend</div>
+      <div class="value">React 18 · Vite</div>
+    </div>
+    <div>
+      <div class="label">LLM Providers</div>
+      <div class="value">Google Gemini · Groq</div>
+    </div>
+    <div>
+      <div class="label">Isolation</div>
+      <div class="value">Docker (sandboxed, no network)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 1. OVERVIEW ============================ -->
+<section>
+<h2>1. What This Project Does</h2>
+
+<p>
+Agent Swarm automates a coding task the way a small engineering team would divide it up —
+except every "team member" is a specialized agent, and the whole exchange is logged.
+You give it a plain-English task description and the path to a local git repository. From
+there, four cooperating agents take over:
+</p>
+
+<ul>
+  <li><strong>Planner</strong> reads the task and the repo's file tree, and produces an ordered, concrete implementation plan.</li>
+  <li><strong>Coder</strong> follows that plan and rewrites the files it calls for, directly in your repo.</li>
+  <li><strong>Tester</strong> runs your <em>real</em> test suite inside an isolated, network-disabled Docker container and reports pass/fail — no LLM involved, because testing should be deterministic.</li>
+  <li><strong>Reviewer</strong> gives the final diff a fast sanity check against the plan before the task is marked done.</li>
+</ul>
+
+<p>
+If the tests fail, the Coder gets another shot — with the actual failure output as context — up to
+a bounded number of retries, instead of looping forever or silently giving up. A React dashboard polls
+the backend and renders all of this as a live timeline (the <strong>Agent Trace</strong>), plus a diff
+viewer for exactly what the Coder changed.
+</p>
+
+<div class="callout">
+  <h4>Why this exists</h4>
+  <p>
+  This is a portfolio project built to demonstrate multi-agent orchestration end-to-end: a real
+  Planner → Coder → Tester → Reviewer loop, backed by an async task pipeline, sandboxed execution,
+  and observability by default — rather than a single LLM call dressed up as "agentic."
+  </p>
+</div>
+</section>
+
+<!-- ============================ 2. TECH STACK ============================ -->
+<section>
+<h2>2. Tech Stack</h2>
+
+<table>
+  <tr><th>Layer</th><th>Technology</th><th>Role</th></tr>
+  <tr><td><strong>Backend / API</strong></td><td>Django 5 + Django REST Framework</td><td>Task/AgentRun models, REST endpoints, free admin audit-trail UI</td></tr>
+  <tr><td><strong>Async pipeline</strong></td><td>Celery + Redis</td><td>Runs the Planner→Coder→Tester→Reviewer chain off the request thread; Redis is both the broker and result backend</td></tr>
+  <tr><td><strong>Database</strong></td><td>SQLite (dev)</td><td>Standard Django ORM only — no SQLite-only features — so it's a config change away from Postgres</td></tr>
+  <tr><td><strong>Sandbox</strong></td><td>Docker, via the <code>docker</code> Python SDK</td><td>One ephemeral, network-disabled container per Coder-write / Tester run</td></tr>
+  <tr><td><strong>Planner LLM</strong></td><td>Google Gemini (<code>google-genai</code> SDK)</td><td>Repo-wide reasoning and task decomposition into a step plan</td></tr>
+  <tr><td><strong>Coder LLM</strong></td><td>Google Gemini</td><td>Whole-file rewrites, given the plan + relevant file contents + prior test failures</td></tr>
+  <tr><td><strong>Tester</strong></td><td>pytest / npm test (no LLM)</td><td>Deterministic pass/fail inside the sandbox</td></tr>
+  <tr><td><strong>Reviewer LLM</strong></td><td>Groq (Llama 3.1 8B Instant)</td><td>Fast, bounded "does this diff match the plan" check</td></tr>
+  <tr><td><strong>Frontend</strong></td><td>React 18 + Vite</td><td>Task submission, live Agent Trace timeline, diff viewer</td></tr>
+  <tr><td><strong>Diff rendering</strong></td><td>react-diff-viewer-continued</td><td>Renders the Coder's before/after per file</td></tr>
+  <tr><td><strong>Styling</strong></td><td>Custom neumorphic CSS (light + dark)</td><td>Soft-UI theme driven entirely by CSS custom properties</td></tr>
+</table>
+</section>
+
+<!-- ============================ 3. WHY THIS STACK ============================ -->
+<section>
+<h2>3. Why This Tech Stack</h2>
+
+<h3>Two LLM providers, on purpose</h3>
+<p>
+This is a deliberate design choice, not two APIs bolted on at random:
+</p>
+<ul>
+  <li><strong>Planner &amp; Coder → Gemini.</strong> Both need to reason over repo-wide context — the file tree, the plan, prior file contents, and (on retry) the previous test failure. Gemini's context window handles that comfortably on the free tier.</li>
+  <li><strong>Tester → no LLM at all.</strong> Test results should be deterministic and reproducible. Programmatically parsing a real <code>pytest</code> exit code and output is strictly more trustworthy than asking a model to "judge" whether tests passed.</li>
+  <li><strong>Reviewer → Groq.</strong> A bounded, final "does this look reasonable" check doesn't need a large context window — it needs to be fast and cheap. Groq's low latency makes it a snappy last step rather than a bottleneck.</li>
+</ul>
+<p>
+All provider calls go through one abstraction, <code>agents/llm_client.py</code>'s
+<code>call_llm(provider, messages)</code>, so swapping which provider any agent uses is a
+one-line change — not a rewrite. It also centralizes the free-tier handling both providers need:
+exponential backoff with jitter on 429s, capped at 3 retries.
+</p>
+
+<h3>Django + DRF + Celery + Redis</h3>
+<p>
+This combination gets a lot for free that a leaner stack would have to build by hand. The
+Django admin doubles as a zero-extra-frontend audit trail for every <code>Task</code> and
+<code>AgentRun</code> — genuinely useful for debugging a multi-step agent pipeline, not just a
+scaffold artifact. Celery is the standard way to move a multi-minute, multi-API-call pipeline
+off the HTTP request/response cycle, and Redis serving as both the broker and result backend
+keeps the infrastructure to a single extra service in dev.
+</p>
+
+<h3>Docker sandbox, not a subprocess</h3>
+<p>
+Executing LLM-generated code is the one place in this project where isolation is non-negotiable.
+Every Coder-written file is exercised inside a throwaway container with <code>network_disabled=True</code>,
+a memory cap, and an enforced timeout — the generated code cannot reach the network, exhaust the
+host, or hang the pipeline. A plain subprocess call would not give any of those guarantees.
+</p>
+
+<h3>Whole-file rewrites, not LLM-generated diffs</h3>
+<p>
+The Coder agent outputs strict JSON — <code>{"files": [{"path", "content"}]}</code> — with the
+complete new content of each file it touches, rather than a unified diff. LLM-generated unified
+diffs are fragile to parse: a single off-by-one context line breaks <code>git apply</code> outright.
+Whole-file rewrites are trivial to validate and apply safely (including a path-traversal check
+before anything touches disk). A real <code>git diff</code> is then computed <em>after</em> the
+files are written, so the Reviewer prompt and the frontend's diff viewer still see a proper diff —
+the model just never has to produce one directly.
+</p>
+
+<h3>React + Vite, polling first</h3>
+<p>
+The dashboard's job is to make an asynchronous, multi-minute pipeline legible in real time. Plain
+polling (every 2–3 seconds) gets that job done with a fraction of the complexity of a WebSocket
+layer, and it's what actually shipped for v1 — Django Channels remains a clearly-scoped stretch
+goal rather than a requirement the demo depends on.
+</p>
+</section>
+
+<!-- ============================ 4. HOW IT WORKS ============================ -->
+<section>
+<h2>4. How It Works</h2>
+
+<h3>Pipeline flow</h3>
+
+<svg viewBox="0 0 900 260" style="width:100%; max-width:700px; display:block; margin: 10px auto 6px;">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#8A8DA0" />
+    </marker>
+    <marker id="arrowAccent" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#6C6FC4" />
+    </marker>
+  </defs>
+
+  <!-- boxes -->
+  <g font-family="Segoe UI, sans-serif">
+    <!-- Planner -->
+    <rect x="20" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
+    <text x="95" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Planner</text>
+    <text x="95" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Gemini</text>
+
+    <!-- Coder -->
+    <rect x="220" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
+    <text x="295" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Coder</text>
+    <text x="295" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Gemini</text>
+
+    <!-- Tester -->
+    <rect x="420" y="85" width="150" height="64" rx="10" fill="#F6F6FB" stroke="#8A8DA0" stroke-width="1.5"/>
+    <text x="495" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Tester</text>
+    <text x="495" y="130" text-anchor="middle" font-size="9.5" fill="#8A8DA0">Docker sandbox · no LLM</text>
+
+    <!-- Reviewer -->
+    <rect x="620" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
+    <text x="695" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Reviewer</text>
+    <text x="695" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Groq</text>
+
+    <!-- Done -->
+    <text x="855" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#4E9C74">done</text>
+
+    <!-- arrows -->
+    <line x1="170" y1="117" x2="216" y2="117" stroke="#8A8DA0" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="370" y1="117" x2="416" y2="117" stroke="#8A8DA0" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="570" y1="117" x2="616" y2="117" stroke="#4E9C74" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="593" y="103" text-anchor="middle" font-size="9" fill="#4E9C74">pass</text>
+    <line x1="770" y1="117" x2="822" y2="117" stroke="#4E9C74" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- retry loop -->
+    <path d="M 495 149 C 495 210, 295 210, 295 149" fill="none" stroke="#C5605F" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="395" y="230" text-anchor="middle" font-size="9.5" fill="#C5605F">retry with failure output (up to MAX_TEST_RETRIES)</text>
+
+    <!-- entry -->
+    <text x="20" y="30" font-size="11" fill="#565A6E">POST /api/tasks/  →  Celery: run_pipeline(task_id)</text>
+    <line x1="20" y1="40" x2="90" y2="80" stroke="#8A8DA0" stroke-width="1.2" marker-end="url(#arrow)"/>
+  </g>
+</svg>
+
+<h3>Step by step</h3>
+<ol class="steps">
+  <li><strong>Submit</strong> — A task (description + local repo path) is created via <code>POST /api/tasks/</code> and enqueued as a Celery job.</li>
+  <li><strong>Plan</strong> — The Planner reads the task description and a trimmed repo file tree, and returns strict JSON: an ordered list of concrete implementation steps.</li>
+  <li><strong>Code</strong> — The Coder selects the files the plan actually names (or falls back to a size-capped sweep), sends their contents plus the plan to Gemini, and gets back whole-file rewrites. Those are written straight into the repo; a real <code>git diff</code> is computed immediately after.</li>
+  <li><strong>Test</strong> — The modified repo is bind-mounted into a fresh, network-disabled Docker container and its real test suite runs (<code>pytest</code> by default). Exit code and output are parsed — no model involved.</li>
+  <li><strong>Retry if needed</strong> — On failure, the Coder runs again with the actual test output as context, up to <code>MAX_TEST_RETRIES</code> (default 3) attempts, before the task is marked <code>failed</code>.</li>
+  <li><strong>Review</strong> — Once tests pass, the Reviewer checks the final diff against the plan and returns <code>{"approved", "concerns"}</code>.</li>
+  <li><strong>Done</strong> — The task is marked <code>done</code>. Every stage's full input/output — including the raw LLM response — is already sitting in the database.</li>
+</ol>
+
+<h3>Observability by default</h3>
+<p>
+Every agent invocation creates an <code>AgentRun</code> row <em>before</em> it calls the LLM or the
+sandbox (status <code>pending</code>), and updates it afterward — success or exception — so a crashed
+agent is always visible in the trace, never silently missing. Every stage's raw LLM response is
+persisted to <code>AgentRun.output</code>, so a failure can be diagnosed from the database without
+re-calling the API. All of this is visible two ways: the React dashboard's live Agent Trace, and the
+Django admin (<code>/admin/</code>), which needed zero extra frontend work to become a full audit log.
+</p>
+
+<h4>Data model</h4>
+<table>
+  <tr><th>Model</th><th>Key fields</th></tr>
+  <tr><td><strong>Task</strong></td><td><code>description</code>, <code>repo_path</code>, <code>status</code> (pending → planning → coding → testing → review → done/failed)</td></tr>
+  <tr><td><strong>AgentRun</strong></td><td><code>task</code> (FK), <code>agent_type</code>, <code>provider</code>, <code>input_context</code>, <code>output</code>, <code>status</code>, <code>retry_count</code>, <code>duration_ms</code></td></tr>
+</table>
+</section>
+
+<!-- ============================ 5. HOW TO RUN ============================ -->
+<section>
+<h2>5. How to Start and Run It</h2>
+
+<h3>Prerequisites</h3>
+<ul>
+  <li>Python 3.11+, Node 18+, Git</li>
+  <li><strong>Docker Desktop</strong>, running — required for the sandbox and for Redis via compose</li>
+  <li>A free <a href="https://aistudio.google.com/">Google AI Studio</a> API key (Gemini) and a free <a href="https://console.groq.com/">Groq</a> API key</li>
+</ul>
+
+<h3>Setup</h3>
+<ol class="steps">
+  <li>
+    <strong>Start Redis</strong>
+    <pre>docker compose up -d</pre>
+  </li>
+  <li>
+    <strong>Build the sandbox image (once)</strong> — <code>python:3.11-slim</code> alone has no test runner, and the sandbox has no network access at run time to install one.
+    <pre>cd backend
+docker build -t agent-swarm-sandbox:latest -f docker/sandbox.Dockerfile .</pre>
+  </li>
+  <li>
+    <strong>Backend — install &amp; migrate</strong>
+    <pre>cd backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env      REM then fill in GOOGLE_API_KEY / GROQ_API_KEY
+python manage.py migrate
+python manage.py test_llm   REM optional: confirms both API keys work</pre>
+  </li>
+  <li>
+    <strong>Backend — run the API server</strong> (terminal 1)
+    <pre>python manage.py runserver</pre>
+  </li>
+  <li>
+    <strong>Backend — run the Celery worker</strong> (terminal 2 — Windows needs <code>-P solo</code>)
+    <pre>celery -A orchestrator worker --loglevel=info -P solo</pre>
+  </li>
+  <li>
+    <strong>Frontend</strong> (terminal 3)
+    <pre>cd frontend
+npm install
+npm run dev</pre>
+    Open the URL Vite prints — by default <code>http://localhost:5173</code>.
+  </li>
+</ol>
+
+<h3>Try it — the built-in demo task</h3>
+<p>
+A ready-made target repo ships in <code>demo_repo/</code>: a tiny Flask app whose <code>/signup</code>
+endpoint has no validation, with two tests that fail against it. From the dashboard, submit:
+</p>
+<div class="callout keep-together">
+  <p><strong>Description:</strong><br/>
+  Add input validation to the /signup endpoint: reject requests with an invalid email format or a
+  missing password with a 400 response.</p>
+  <p style="margin-bottom:0"><strong>Repo path:</strong><br/>
+  <code>C:\intelFPGA\18.1\Practice\agent_swarm\demo_repo</code></p>
+</div>
+<p>
+Watch the Agent Trace go Planner → Coder → Tester → Reviewer and land on <code>done</code>. To run it
+again afterward, reset the repo first so the tests are failing again: <code>cd demo_repo &amp;&amp; git checkout -- .</code>
+</p>
+
+<div class="callout warn keep-together">
+<h4>Troubleshooting notes from real setup runs</h4>
+<ul>
+  <li><strong><code>'docker' is not recognized</code> in PowerShell</strong> — a per-user Docker Desktop install doesn't always add itself to PATH. Use the full path once (<code>C:\Users\&lt;you&gt;\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe</code>), or add that folder to your user <code>PATH</code> permanently and reopen the terminal.</li>
+  <li><strong>"Failed to create task" with no POST logged on the backend</strong> — usually a leftover <code>npm run dev</code> process holding port 5173, pushing your actual tab onto 5174/5175, which the backend's <code>CORS_ALLOWED_ORIGINS</code> doesn't trust. Close stray dev-server terminals, or widen the allow-list in <code>backend/.env</code>.</li>
+  <li><strong>Backend picks up <code>.env</code> only at startup</strong> — restart <code>runserver</code> after editing it.</li>
+</ul>
+</div>
+</section>
+
+<!-- ============================ 6. SCREENSHOTS ============================ -->
+<section>
+<h2>6. Screenshots</h2>
+
+<figure>
+  <img src="assets/loading-screen.png" alt="Loading screen" />
+  <figcaption>Splash screen shown once on load — four agent nodes cycling around a pulsing core before the landing page fades in.</figcaption>
+</figure>
+
+<figure>
+  <img src="assets/landing-page.png" alt="Landing page" />
+  <figcaption>Landing page — explains the pipeline (Planner → Coder → Tester → Reviewer) and links into the dashboard.</figcaption>
+</figure>
+
+<figure>
+  <img src="assets/dashboard-trace.png" alt="Dashboard with a completed Agent Trace and diff" />
+  <figcaption>Dashboard after a completed run — task list on the left, live Agent Trace and the Coder's diff on the right.</figcaption>
+</figure>
+</section>
+
+<!-- ============================ 7. NON-GOALS ============================ -->
+<section>
+<h2>7. Non-Goals (v1)</h2>
+<ul>
+  <li>No multi-repo support — one <code>repo_path</code> per task</li>
+  <li>No authentication / user accounts — single-user local tool</li>
+  <li>No LLM-based test generation — the Tester only runs a repo's existing tests</li>
+  <li>No code execution outside the sandboxed container, ever</li>
+</ul>
+
+<footer class="page-footer">Agent Swarm — Autonomous Coding Agent Orchestrator</footer>
+</section>
+
+</body>
+</html>

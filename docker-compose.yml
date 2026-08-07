@@ -1,0 +1,13 @@
+# Only Redis runs via compose. Django, Celery, and Vite run as normal local
+# processes (see README.md) -- keeps the dev loop fast (no image rebuild to
+# see a code change) and matches Build Order / Deliverable in the brief.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
