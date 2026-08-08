@@ -3,20 +3,17 @@
 `Agent_Swarm_Documentation.pdf` is generated from `documentation.html` (self-contained,
 references `assets/*.png`). To regenerate after editing the HTML:
 
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome", headless=True)  # uses system Chrome, no browser download needed
-    page = browser.new_page()
-    page.goto("file:///c:/intelFPGA/18.1/Practice/agent_swarm/docs/documentation.html")
-    page.pdf(path="c:/intelFPGA/18.1/Practice/agent_swarm/docs/Agent_Swarm_Documentation.pdf",
-             prefer_css_page_size=True, print_background=True)
-    browser.close()
+```
+python docs/build_pdf.py
 ```
 
-Requires `pip install playwright` (Python bindings only -- `channel="chrome"` reuses your
-installed Chrome rather than downloading Playwright's own browsers).
+Requires `pip install playwright` (Python bindings only -- it reuses your installed
+Chrome via `channel="chrome"` rather than downloading Playwright's own browsers).
+
+The script refuses to build if any `<img>` in the HTML points at a file that isn't in
+`assets/`. That check matters: Chromium renders a missing image as a silent
+broken-image box, so otherwise a typo'd filename only surfaces when someone opens the
+finished PDF.
 
 **Font note:** the `code` style intentionally uses `"Consolas", monospace` and *not* a variable
 font like Cascadia Mono/Code. Chromium's print-to-PDF pipeline has a glyph-corruption bug with

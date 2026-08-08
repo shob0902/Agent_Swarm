@@ -87,6 +87,13 @@ def _coder_key_pool() -> key_pool.KeyPool:
 # wasted 413.
 _CODER_MAX_OUTPUT_TOKENS = 3000
 
+# How many times to re-ask when the model returns something that isn't usable
+# JSON. Two extra tries is the sweet spot: each costs one Groq call against a
+# free-tier quota, and an 8B model that mangles its output three times running
+# is not going to get it right on the fourth -- at that point the honest
+# outcome is a failed run with the raw output recorded for inspection.
+MAX_MALFORMED_RETRIES = 2
+
 
 def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> dict:
     """Selects relevant files, calls Groq on one of the two rotating Coder
@@ -114,15 +121,14 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
         "prior_test_output": prior_test_output,
     }
 
+    messages = [
+        {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
+        {"role": "user", "content": prompt},
+    ]
+
     with track_run(task, agent_type="coder", provider=CODER_PROVIDER, input_context=input_context, retry_count=attempt) as run:
         try:
-            response, served_by, tried = _call_coder_llm(
-                [
-                    {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
-                    {"role": "user", "content": prompt},
-                ],
-                attempt,
-            )
+            files, response, served_by, tried, malformed = _request_files(messages, attempt)
         except _CoderKeysExhausted as exc:
             # Every key that was actually tried failed -- record all of them
             # so the trace/admin shows the failure was the whole pool, not
@@ -130,7 +136,6 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
             run.output = {"error": str(exc), "keys_tried": exc.attempted}
             raise
 
-        files = _validate_files(response.text)
         diff, file_diffs = _apply_files_and_diff(task.local_path, files)
         result = {"diff": diff, "files": [f["path"] for f in files], "file_diffs": file_diffs}
         # `key_slot` is whoever actually served it (the frontend's Agent Trace
@@ -141,9 +146,71 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
             "raw": response.raw,
             "key_slot": served_by,
             "keys_tried": tried,
+            "malformed_responses": malformed,
             **result,
         }
         return result
+
+
+def _request_files(messages: list[dict], attempt: int):
+    """Ask for the file rewrites, re-asking if the model returns something
+    that isn't usable JSON. Returns
+    (files, response, serving_slot, all_slots_tried, malformed_count).
+
+    A malformed response is a *transient* failure, not a permanent one --
+    an 8B model at temperature 0.2 will occasionally stop mid-string or
+    close a quote early on output that it gets right on the very next call
+    (observed live: the same prompt against the same repo produced clean
+    JSON once and a response truncated at 2051 chars the next time, with
+    Groq reporting finish_reason="stop" both times, so there is nothing to
+    detect up front).
+
+    Without this loop a single such response fails the whole pipeline:
+    tasks.py only loops the Coder back around when the *Tester* rejects the
+    code, so a Coder that never produced parseable code at all just aborts
+    the run. Re-asking here is the cheap fix -- and each re-ask naturally
+    lands on the other API key, since the pool hands out least-recently-used
+    first.
+    """
+    tried: list[str] = []
+    last_exc: AgentRunFailed | None = None
+
+    for reask in range(MAX_MALFORMED_RETRIES + 1):
+        current = messages if reask == 0 else [*messages, *_reask_turn(last_exc)]
+        # attempt + reask keeps rotating the key-pool tiebreak, so a retry
+        # isn't biased back toward the key that just produced junk.
+        response, slot, slots = _call_coder_llm(current, attempt + reask)
+        tried.extend(s for s in slots if s not in tried)
+        try:
+            return _validate_files(response.text), response, slot, tried, reask
+        except AgentRunFailed as exc:
+            last_exc = exc
+            logger.warning(
+                "Coder: unusable response from %s (%s)%s",
+                slot,
+                str(exc)[:200],
+                " -- re-asking" if reask < MAX_MALFORMED_RETRIES else " -- out of re-asks",
+            )
+
+    raise last_exc
+
+
+def _reask_turn(exc: AgentRunFailed | None) -> list[dict]:
+    """Corrective turn appended on a re-ask. Deliberately does NOT echo the
+    bad response back -- it can be multiple KB of half-escaped file content,
+    and re-sending it would push the request over Groq's ~6000 tokens/minute
+    prompt+completion ceiling, turning a recoverable blip into a hard 413."""
+    return [
+        {
+            "role": "user",
+            "content": (
+                f"Your previous response could not be parsed: {str(exc)[:200]}. "
+                "Return ONLY the JSON object, complete, with every string properly "
+                "escaped and closed, and nothing before or after it. If the files are "
+                "long, include fewer files rather than truncating the JSON."
+            ),
+        }
+    ]
 
 
 class _CoderKeysExhausted(llm_client.LLMError):
@@ -296,7 +363,21 @@ def _validate_files(text: str) -> list[dict]:
     for entry in data["files"]:
         if not isinstance(entry, dict) or not entry.get("path") or "content" not in entry:
             raise AgentRunFailed(f"Coder 'files' entries need 'path' and 'content'. Raw output: {text[:500]!r}")
-    return data["files"]
+
+    # The model sometimes emits the same path twice -- e.g. a first pass at a
+    # file followed by a corrected version of it (observed live: a "files"
+    # list of ["app.py", "app.py"]). Left alone that writes the file twice,
+    # and the second file_diffs entry captures the *first* rewrite as its
+    # "old_content" -- so the diff viewer shows a phantom before/after
+    # between two generated versions instead of against the real original.
+    # Last entry wins: it's the model's final intent for that path.
+    deduped = {entry["path"]: entry for entry in data["files"]}
+    if len(deduped) != len(data["files"]):
+        logger.warning(
+            "Coder returned duplicate paths %s -- keeping the last entry for each",
+            [p for p in {e["path"] for e in data["files"]} if sum(e["path"] == p for e in data["files"]) > 1],
+        )
+    return list(deduped.values())
 
 
 def _apply_files_and_diff(repo_path: str, files: list[dict]) -> str:

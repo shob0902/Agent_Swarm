@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./venv/Scripts/python.exe \"C:/Users/shour/AppData/Local/Temp/claude/C--intelFPGA-18-1-Practice-agent-swarm/4d8cf7d3-ea07-4c89-9b27-9dd8e7818686/scratchpad/psj_test.py\")",
+      "Bash(./venv/Scripts/python.exe -m compileall -q agents/services/common.py)",
+      "Bash(./venv/Scripts/python.exe manage.py check)",
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(./venv/Scripts/python.exe \"C:/Users/shour/AppData/Local/Temp/claude/C--intelFPGA-18-1-Practice-agent-swarm/4d8cf7d3-ea07-4c89-9b27-9dd8e7818686/scratchpad/e2e_coder.py\")",
+      "Bash(./venv/Scripts/python.exe -m compileall -q agents/services/coder.py)",
+      "Bash(./venv/Scripts/python.exe \"C:/Users/shour/AppData/Local/Temp/claude/C--intelFPGA-18-1-Practice-agent-swarm/4d8cf7d3-ea07-4c89-9b27-9dd8e7818686/scratchpad/reask_test.py\")",
+      "Bash(./venv/Scripts/python.exe \"C:/Users/shour/AppData/Local/Temp/claude/C--intelFPGA-18-1-Practice-agent-swarm/4d8cf7d3-ea07-4c89-9b27-9dd8e7818686/scratchpad/genpdf.py\")",
+      "Read(//c/Users/shour/**)",
+      "Bash(echo \"--- exit: $? \\(empty = nothing found\\) ---\")",
+      "Bash(./backend/venv/Scripts/python.exe docs/build_pdf.py)",
+      "Bash(echo \"\\(exit $?\\)\")",
+      "Bash(./backend/venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}

@@ -102,6 +102,39 @@ Agent Trace shows it as *via groq · key A*), and `["keys_tried"]` keeps the
 full attempt list either way — so a silent failover is still visible after
 the fact rather than looking like a clean first-try success.
 
+### Surviving a model that mangles its own output
+
+The single most common way this pipeline fails is not a bad plan or bad code
+— it's the model breaking the output contract. Two layers handle that:
+
+- **`parse_strict_json` tolerates chatter, not corruption**
+  (`services/common.py`). Every prompt says "strict JSON only, no prose, no
+  fences", and an 8B model mostly complies. When it doesn't, the response is
+  still salvageable: it finds the first JSON value and uses `raw_decode`,
+  which stops at the end of that value instead of demanding the whole string
+  be consumed. That fixes leading prose, ```json fences, and — the one that
+  actually bit — *anything after* the JSON, where `json.loads` rejects a
+  perfectly good response with `Extra data: line 2 column 1`. Genuinely
+  truncated or corrupt output is still rejected.
+- **The Coder re-asks on unusable output** (`MAX_MALFORMED_RETRIES`, default
+  2). A response that stops mid-string is transient, not deterministic: the
+  same prompt against the same repo produced clean JSON on one call and a
+  response truncated at 2051 chars on the next, with Groq reporting
+  `finish_reason="stop"` both times — so there's nothing to detect up front.
+  Without a re-ask, one such response aborts the entire run, because
+  `tasks.py` only loops the Coder back around when the *Tester* rejects the
+  code, never when the Coder produced no usable code at all. Each re-ask
+  carries a short corrective note (not the bad output — re-sending multiple
+  KB of half-escaped file content would blow the token ceiling and turn a
+  blip into a hard 413) and naturally lands on the *other* API key, since
+  the pool hands out least-recently-used first.
+
+The Coder also de-duplicates repeated paths in the `files` list, keeping the
+last entry. A model that emits `app.py` twice would otherwise have the file
+written twice, with the second `file_diffs` entry capturing the first
+rewrite as its "before" — a phantom diff between two generated versions
+instead of against the real original.
+
 ### Known free-tier constraints (found in practice, not guessed)
 
 Both of these surfaced with live keys, and are worth knowing before assuming

@@ -13,4 +13,5 @@ Rules:
 - Only include files that actually need to change. Do not rewrite files you are not modifying.
 - Preserve existing style/formatting conventions in files you edit.
 - If prior test failure output is included above, treat it as the ground truth about what is still broken and fix that specifically rather than re-deriving the plan from scratch.
-- Do not add new third-party dependencies -- the sandbox has no network access, so anything not already importable in the repo will fail at test time.
+- Do not add new third-party dependencies -- the sandbox has no network access, so anything not already importable will fail at test time with ImportError. The ONLY third-party packages installed are: flask, pytest, requests. Everything else must come from the Python standard library (use `re` for validation, not `email_validator`; `logging`, not `loguru`) or from a module that already exists in the repo above.
+- Output the JSON object and then STOP. Do not repeat it, do not append an explanation, and do not add any text after the closing brace.

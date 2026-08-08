@@ -368,6 +368,22 @@ list regardless of outcome, so a silent failover stays visible after the fact in
 like a clean first-try success.
 </p>
 
+<h4>Surviving a model that mangles its own output</h4>
+<p>
+The most common way this pipeline fails in practice is not a bad plan or bad code — it's the model
+breaking the output contract. Two layers handle that:
+</p>
+<ul>
+  <li><strong><code>parse_strict_json</code> tolerates chatter, not corruption</strong> (<code>services/common.py</code>). Every prompt says "strict JSON only, no prose, no fences", and an 8B model mostly complies; when it doesn't, the response is usually still salvageable. It locates the first JSON value and uses <code>raw_decode</code>, which stops at the end of that value rather than demanding the whole string be consumed — handling leading prose, <code>```json</code> fences, and the one that actually bit: <em>anything after</em> the JSON, where plain <code>json.loads</code> throws away a perfectly good response with <code>Extra data: line 2 column 1</code>. Genuinely truncated or corrupt output is still rejected.</li>
+  <li><strong>The Coder re-asks on unusable output</strong> (<code>MAX_MALFORMED_RETRIES</code>, default 2). A response that stops mid-string is transient rather than deterministic — the same prompt against the same repo produced clean JSON on one call and a response truncated at 2051 characters on the next, with Groq reporting <code>finish_reason="stop"</code> both times, so there is nothing to detect up front. Without a re-ask a single such response aborts the whole run, because <code>tasks.py</code> only loops the Coder back around when the <em>Tester</em> rejects the code — never when the Coder produced no usable code at all. Each re-ask carries a short corrective note (deliberately <em>not</em> the bad output: re-sending multiple KB of half-escaped file content would blow the token ceiling and turn a recoverable blip into a hard 413) and naturally lands on the other API key, since the pool hands out least-recently-used first.</li>
+</ul>
+<p>
+The Coder also de-duplicates repeated paths in the <code>files</code> list, keeping the last entry.
+A model that emits <code>app.py</code> twice would otherwise have that file written twice, with the
+second <code>file_diffs</code> entry capturing the first rewrite as its "before" — a phantom diff
+between two generated versions rather than against the real original.
+</p>
+
 <div class="callout warn keep-together">
 <h4>Known free-tier constraints (found in practice, not guessed)</h4>
 <p>Both of these surfaced with live keys, and between them they shaped the whole provider setup:</p>
@@ -494,7 +510,7 @@ and lets the browser do the rest.
 
 <h3>Step by step</h3>
 <ol class="steps">
-  <li><strong>Submit</strong> — A task (description + local repo path) is created via <code>POST /api/tasks/</code> and enqueued as a Celery job.</li>
+  <li><strong>Submit</strong> — A task (description + public GitHub repo URL) is created via <code>POST /api/tasks/</code> and enqueued as a Celery job; the worker shallow-clones the repo into a throwaway temp directory.</li>
   <li><strong>Plan</strong> — The Planner reads the task description and a trimmed repo file tree, and returns strict JSON: an ordered list of concrete implementation steps.</li>
   <li><strong>Code</strong> — The Coder selects the files the plan actually names (or falls back to a size-capped sweep), sends their contents plus the plan to Groq (on whichever of its two keys the pool picks), and gets back whole-file rewrites. Those are written straight into the repo; a real <code>git diff</code> is computed immediately after.</li>
   <li><strong>Test</strong> — The modified repo is bind-mounted into a fresh, network-disabled Docker container and its real test suite runs (<code>pytest</code> by default). Exit code and output are parsed — no model involved.</li>
@@ -502,6 +518,21 @@ and lets the browser do the rest.
   <li><strong>Review</strong> — Once tests pass, the Reviewer checks the final diff against the plan and returns <code>{"approved", "concerns"}</code>.</li>
   <li><strong>Done</strong> — The task is marked <code>done</code>. Every stage's full input/output — including the raw LLM response — is already sitting in the database.</li>
 </ol>
+
+<figure>
+  <img src="assets/successful-run.png" alt="Completed Agent Trace showing Planner, Coder, Tester, a second Coder and Tester attempt, and Reviewer all succeeding, with the resulting diff below" />
+  <figcaption>
+    A complete run against the deliberately-broken demo repo — every step above, actually happening.
+    The <strong>retry loop fires</strong>: the Coder's first rewrite doesn't satisfy the repo's real
+    test suite, the Tester's pytest output is fed back as context, and <em>Coder attempt 2</em> gets it
+    right — after which the Reviewer approves and the task lands on <code>done</code>. The
+    <strong>two-key rotation is visible too</strong>: attempt 1 was served by <em>key B</em> and the
+    retry by <em>key A</em>, exactly the least-recently-used ordering described in Section 3. The diff
+    below the trace is a genuine <code>git diff</code> computed from the clone, not model-generated —
+    here the Coder replaced a hallucinated <code>email</code>-module import with a stdlib
+    <code>re</code> pattern.
+  </figcaption>
+</figure>
 
 <h3>Observability by default</h3>
 <p>

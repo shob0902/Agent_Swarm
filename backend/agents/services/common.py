@@ -13,11 +13,20 @@ services/coder.py -- can just set `run.provider` before the block ends.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import Any
 
 from ..models import AgentRun
+
+logger = logging.getLogger(__name__)
+
+# First ```/```json fenced block in the response, if the model wrapped its
+# JSON in one despite being told not to. Non-greedy so a fence that appears
+# again later in the response doesn't swallow everything in between.
+_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
 class AgentRunFailed(Exception):
@@ -29,24 +38,65 @@ class AgentRunFailed(Exception):
 def parse_strict_json(text: str) -> Any:
     """Defensively parse a model response that is supposed to be strict
     JSON (Section 8: this is the single most common failure point in agent
-    pipelines). Strips accidental ```json fences before parsing, and
-    raises AgentRunFailed -- not a raw JSONDecodeError -- on failure so
-    callers can catch one exception type and fail the run cleanly instead
-    of crashing the whole pipeline task.
+    pipelines).
+
+    Every agent's prompt says "strict JSON only, no prose, no fences", and a
+    small model obeys that most of the time but not all of it. Three real
+    deviations are tolerated here rather than being allowed to fail a run
+    that the model actually got right:
+
+      1. The whole thing wrapped in a ```json fence.
+      2. Prose before the JSON ("Here is the updated file:").
+      3. Anything *after* the JSON value -- a trailing explanation, a repeat
+         of the object, a stray token. This is the one that used to hurt
+         most: `json.loads` rejects the entire response with "Extra data:
+         line 2 column 1" even though the JSON that precedes it parses
+         perfectly and is exactly what was asked for.
+
+    Parsing therefore locates the first JSON value and uses `raw_decode`,
+    which stops cleanly at the end of that value instead of demanding the
+    whole string be consumed. Raises AgentRunFailed -- not a raw
+    JSONDecodeError -- so callers catch one exception type and fail the run
+    cleanly instead of crashing the whole pipeline task.
     """
+    candidate = _strip_code_fence(text)
+    start = _first_json_start(candidate)
+    if start is None:
+        raise AgentRunFailed(f"Model returned no JSON object or array at all. Raw output: {text[:500]!r}")
+
     try:
-        return json.loads(_strip_code_fence(text))
+        value, end = json.JSONDecoder().raw_decode(candidate, start)
     except json.JSONDecodeError as exc:
         raise AgentRunFailed(f"Model returned invalid JSON ({exc}). Raw output: {text[:500]!r}") from exc
 
+    trailing = candidate[end:].strip()
+    if trailing:
+        # Not fatal -- the value above is complete and well-formed -- but
+        # worth surfacing, since a model that keeps talking after its JSON
+        # is also a model that might have meant to say something useful.
+        logger.warning(
+            "Discarded %d chars of trailing output after the JSON value: %r",
+            len(trailing),
+            trailing[:200],
+        )
+    return value
+
 
 def _strip_code_fence(text: str) -> str:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        if stripped.lower().startswith("json"):
-            stripped = stripped[4:]
-    return stripped.strip()
+    """Returns the contents of the first fenced block, or the original text
+    if there isn't a complete one. A fence with no closing ``` (a truncated
+    response) falls through deliberately -- `_first_json_start` can still
+    find the JSON after the opening fence."""
+    match = _FENCE_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
+def _first_json_start(text: str) -> int | None:
+    """Index of the first '{' or '[', i.e. where a JSON value could begin."""
+    candidates = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    return min(candidates) if candidates else None
 
 
 @contextmanager
