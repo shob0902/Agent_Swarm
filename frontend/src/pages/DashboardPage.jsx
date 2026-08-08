@@ -99,7 +99,12 @@ export default function DashboardPage({ theme, onToggleTheme }) {
         </div>
 
         <div className="app-column">
-          <AgentTrace taskId={selectedId} taskStatus={selectedTask?.status} theme={theme} />
+          <AgentTrace
+            taskId={selectedId}
+            taskStatus={selectedTask?.status}
+            taskTitle={selectedTask?.title || selectedTask?.display_title}
+            theme={theme}
+          />
         </div>
       </main>
     </div>

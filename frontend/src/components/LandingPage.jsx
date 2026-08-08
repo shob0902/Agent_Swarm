@@ -3,8 +3,8 @@ import { useAuth } from '../context/AuthContext'
 import './LandingPage.css'
 
 const STEPS = [
-  { agent: 'Planner', provider: 'Gemini', blurb: 'Breaks your task description into an ordered, concrete implementation plan.' },
-  { agent: 'Coder', provider: 'Gemini', blurb: 'Rewrites the files the plan calls for, straight into your repo.' },
+  { agent: 'Planner', provider: 'Groq', blurb: 'Breaks your task description into an ordered, concrete implementation plan.' },
+  { agent: 'Coder', provider: 'Groq · 2 keys', blurb: 'Rewrites the files the plan calls for, straight into your repo. The highest-volume agent, so it gets two keys and rotates between them least-recently-used first, cooling off any key that hits its rate limit.' },
   { agent: 'Tester', provider: 'sandboxed · no LLM', blurb: 'Runs your real test suite in an isolated, network-disabled container and parses the result.' },
   { agent: 'Reviewer', provider: 'Groq', blurb: 'Gives the final diff a fast sanity check against the plan before marking the task done.' },
 ]

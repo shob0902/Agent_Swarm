@@ -1,12 +1,15 @@
 """Planner agent: task description + repo file tree -> ordered JSON step plan.
 
-Uses Gemini (larger context window, better at whole-repo decomposition --
-see Section 3). Takes no action on the repo itself; purely produces a plan
-for the Coder agent to follow.
+Runs on Groq with its own dedicated key (GROQ_API_KEY_PLANNER), so a
+Planner call can never eat into the Coder's or Reviewer's quota -- see
+Section 3. Takes no action on the repo itself; purely produces a plan for
+the Coder agent to follow.
 """
 from __future__ import annotations
 
 from pathlib import Path
+
+from django.conf import settings
 
 from .. import llm_client
 from ..prompts import load_prompt
@@ -19,6 +22,7 @@ IGNORE_DIRS = {
     ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build", "egg-info",
 }
 MAX_TREE_ENTRIES = 400
+MAX_PLAN_OUTPUT_TOKENS = 1500
 
 
 def build_file_tree(repo_path: str) -> str:
@@ -52,13 +56,21 @@ def run_planner(task) -> dict:
     prompt = load_prompt("planner_prompt", task_description=task.description, file_tree=file_tree)
     input_context = {"task_description": task.description, "file_tree": file_tree}
 
-    with track_run(task, agent_type="planner", provider="gemini", input_context=input_context) as run:
+    with track_run(task, agent_type="planner", provider="groq", input_context=input_context) as run:
         response = llm_client.call_llm(
-            "gemini",
+            "groq",
             [
                 {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
                 {"role": "user", "content": prompt},
             ],
+            api_key=settings.GROQ_API_KEY_PLANNER,
+            # A plan is a short list of one-line steps, so this doesn't need
+            # the 4096 default -- and asking for it actively hurts: Groq's
+            # free tier counts prompt + completion against one ~6000
+            # tokens/minute ceiling, and the file tree in this prompt is the
+            # big half. Reserving only what the output actually needs is
+            # what leaves room for a large repo's tree to fit at all.
+            max_output_tokens=MAX_PLAN_OUTPUT_TOKENS,
         )
         plan = _validate_plan(response.text)
         run.output = {"raw_response": response.text, "raw": response.raw, "plan": plan}

@@ -1,8 +1,12 @@
 """Coder agent: plan (+ prior test failure, if retrying) -> file rewrites.
 
-Uses Gemini -- needs the most context of any agent (plan, file contents,
-prior failures), and Gemini's free-tier context window handles that better
-than Groq's smaller-context free models (Section 3).
+Needs the most context of any agent (plan, file contents, prior failures)
+and is called the most often (once per plan, once per retry attempt), so
+unlike Planner/Reviewer it isn't pinned to a single API key: it rotates
+between two dedicated Groq keys (GROQ_API_KEY_CODER_A / _B), with automatic
+failover to the other if the first one it picks fails. The selection rule
+lives in services/key_pool.py; see Section 3 for why the whole pipeline
+runs on Groq.
 
 Output format: strict JSON {"files": [{"path", "content"}, ...]} where
 "content" is the COMPLETE new file, not a unified diff. This was chosen
@@ -17,14 +21,20 @@ model never produced one itself.
 """
 from __future__ import annotations
 
+import logging
 import re
+import threading
 from pathlib import Path
 
+from django.conf import settings
 from git import InvalidGitRepositoryError, Repo
 
 from .. import llm_client
 from ..prompts import load_prompt
+from . import key_pool
 from .common import AgentRunFailed, parse_strict_json, track_run
+
+logger = logging.getLogger(__name__)
 
 MAX_FILE_CHARS = 4000  # per-file cap sent to the LLM
 MAX_TOTAL_CONTEXT_CHARS = 20000  # combined cap across all files sent to the LLM
@@ -35,10 +45,53 @@ IGNORE_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "env", "d
 
 _PATH_TOKEN_RE = re.compile(r"[\w./-]+\.\w+")
 
+CODER_PROVIDER = "groq"
+
+# The Coder is by far the highest-volume agent -- one call for the initial
+# plan, then one more per retry attempt -- so it's the one agent given two
+# independent Groq keys instead of one. Which of the two serves a given call
+# is decided by KeyPool: least-recently-used first, with a per-key cooldown
+# applied on 429s so an exhausted key stops being picked, and failover to
+# the sibling key if the first choice fails for any reason. The full rule
+# (and why a plain alternate-by-attempt counter wasn't good enough) is
+# documented in services/key_pool.py.
+#
+# Built lazily rather than at import time so Django settings are guaranteed
+# loaded, and cached module-level so the per-key state it accumulates
+# actually survives across pipeline runs in the same worker process.
+_CODER_KEY_POOL: key_pool.KeyPool | None = None
+_CODER_KEY_POOL_LOCK = threading.Lock()
+
+
+def _coder_key_pool() -> key_pool.KeyPool:
+    global _CODER_KEY_POOL
+    with _CODER_KEY_POOL_LOCK:
+        if _CODER_KEY_POOL is None:
+            _CODER_KEY_POOL = key_pool.KeyPool.from_pairs(
+                [
+                    ("coder-a", settings.GROQ_API_KEY_CODER_A),
+                    ("coder-b", settings.GROQ_API_KEY_CODER_B),
+                ]
+            )
+        return _CODER_KEY_POOL
+
+
+# Whole-file rewrites need real output-token headroom (see the comment on
+# the call below), but Groq's free tier for llama-3.1-8b-instant enforces a
+# combined prompt+completion cap of ~6000 tokens per minute -- confirmed
+# empirically: requesting a 16384 ceiling gets a 413 every time ("Request
+# too large ... Limit 6000, Requested 18269"), because max_output_tokens
+# alone already blows through it before the prompt is even counted. Capped
+# at 3000 so a Coder task whose prompt + completion fit under 6000 actually
+# gets a chance to succeed, instead of every attempt being a guaranteed,
+# wasted 413.
+_CODER_MAX_OUTPUT_TOKENS = 3000
+
 
 def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> dict:
-    """Selects relevant files, calls Gemini for whole-file rewrites, applies
-    them to task.local_path, and returns {"diff": str, "files": [path, ...],
+    """Selects relevant files, calls Groq on one of the two rotating Coder
+    keys for whole-file rewrites, applies them to task.local_path, and returns
+    {"diff": str, "files": [path, ...],
     "file_diffs": [{"path", "old_content", "new_content"}, ...]}.
     """
     relevant = _select_relevant_files(task.local_path, plan)
@@ -61,28 +114,107 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
         "prior_test_output": prior_test_output,
     }
 
-    with track_run(task, agent_type="coder", provider="gemini", input_context=input_context, retry_count=attempt) as run:
-        response = llm_client.call_llm(
-            "gemini",
-            [
-                {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
-                {"role": "user", "content": prompt},
-            ],
-            # Unlike the Planner's step list or the Reviewer's verdict, this
-            # response embeds one or more COMPLETE rewritten files as JSON
-            # string values -- the default 4096 is easy to blow through on
-            # anything beyond a short file (JSON-escaping alone inflates
-            # length), which truncates mid-string and fails downstream as a
-            # cryptic JSON parse error rather than an obvious token-budget
-            # one. 16384 gives real headroom; llm_client.call_llm now also
-            # raises a clear error if a response is cut off before this.
-            max_output_tokens=16384,
-        )
+    with track_run(task, agent_type="coder", provider=CODER_PROVIDER, input_context=input_context, retry_count=attempt) as run:
+        try:
+            response, served_by, tried = _call_coder_llm(
+                [
+                    {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
+                    {"role": "user", "content": prompt},
+                ],
+                attempt,
+            )
+        except _CoderKeysExhausted as exc:
+            # Every key that was actually tried failed -- record all of them
+            # so the trace/admin shows the failure was the whole pool, not
+            # one unlucky key.
+            run.output = {"error": str(exc), "keys_tried": exc.attempted}
+            raise
+
         files = _validate_files(response.text)
         diff, file_diffs = _apply_files_and_diff(task.local_path, files)
         result = {"diff": diff, "files": [f["path"] for f in files], "file_diffs": file_diffs}
-        run.output = {"raw_response": response.text, "raw": response.raw, **result}
+        # `key_slot` is whoever actually served it (the frontend's Agent Trace
+        # surfaces it as "via groq · key A"); `keys_tried` keeps the full
+        # attempt list, so a silent failover is still visible after the fact.
+        run.output = {
+            "raw_response": response.text,
+            "raw": response.raw,
+            "key_slot": served_by,
+            "keys_tried": tried,
+            **result,
+        }
         return result
+
+
+class _CoderKeysExhausted(llm_client.LLMError):
+    """Every key slot the Coder tried failed. Carries which slots were
+    actually attempted so the caller can record that accurately."""
+
+    def __init__(self, message: str, attempted: list[str]):
+        super().__init__(message)
+        self.attempted = attempted
+
+
+def _call_coder_llm(messages: list[dict], attempt: int) -> tuple[llm_client.LLMResponse, str, list[str]]:
+    """Walk the key pool's preference order, failing over to the next key if
+    one fails for any reason, and report each outcome back so the pool's
+    ordering improves for the next call. See services/key_pool.py for the
+    selection rule. Returns (response, serving_slot, slots_actually_tried)."""
+    pool = _coder_key_pool()
+    candidates = pool.select(tiebreak=attempt)
+    if not candidates:
+        raise _CoderKeysExhausted(
+            "no Coder API key configured -- set GROQ_API_KEY_CODER_A and/or "
+            "GROQ_API_KEY_CODER_B in backend/.env",
+            [],
+        )
+
+    attempted: list[str] = []
+    last_exc: llm_client.LLMError | None = None
+    for i, candidate in enumerate(candidates):
+        attempted.append(candidate.slot)
+        pool.mark_used(candidate.slot)
+        try:
+            response = llm_client.call_llm(
+                CODER_PROVIDER,
+                messages,
+                api_key=candidate.api_key,
+                # Unlike the Planner's step list or the Reviewer's verdict,
+                # this response embeds one or more COMPLETE rewritten files
+                # as JSON string values -- the default 4096 is easy to blow
+                # through on anything beyond a short file (JSON-escaping
+                # alone inflates length), which truncates mid-string and
+                # fails downstream as a cryptic JSON parse error rather than
+                # an obvious token-budget one. See _CODER_MAX_OUTPUT_TOKENS
+                # for the ceiling; llm_client.call_llm also raises a clear
+                # error if a response is cut off before reaching it.
+                max_output_tokens=_CODER_MAX_OUTPUT_TOKENS,
+            )
+        except llm_client.LLMRateLimitError as exc:
+            # Out of quota, not a bad request -- cool this key off so the
+            # next call skips straight to its sibling instead of paying
+            # call_llm's full backoff cycle here all over again.
+            pool.mark_rate_limited(candidate.slot)
+            last_exc = exc
+            _log_key_failure(candidate.slot, exc, has_more=i < len(candidates) - 1)
+        except llm_client.LLMError as exc:
+            pool.mark_failed(candidate.slot)
+            last_exc = exc
+            _log_key_failure(candidate.slot, exc, has_more=i < len(candidates) - 1)
+        else:
+            pool.mark_success(candidate.slot)
+            return response, candidate.slot, attempted
+
+    raise _CoderKeysExhausted(str(last_exc), attempted) from last_exc
+
+
+def _log_key_failure(slot: str, exc: Exception, *, has_more: bool) -> None:
+    logger.warning(
+        "Coder: key %s failed (%s)%s",
+        slot,
+        exc,
+        " -- failing over to the next key" if has_more else " -- no more keys to try",
+    )
 
 
 def _plan_json(plan: dict) -> str:

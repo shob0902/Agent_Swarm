@@ -7,36 +7,130 @@ a React UI. Code execution happens in an isolated, network-disabled Docker
 container; it never touches the host.
 
 ```
-Task submitted → Planner (Gemini) → Coder (Gemini) ⇄ Tester (sandbox, no LLM)
-                                         ↑______________retry up to 3x______|
-                → Reviewer (Groq) → done
+Task submitted → Planner (Groq) → Coder (Groq, 2 keys: LRU + cooldown) ⇄ Tester (sandbox, no LLM)
+                                                     ↑___________________retry up to 3x______|
+                             → Reviewer (Groq) → done
 ```
 
-## Why two LLM providers
+## One provider (Groq), four API keys
 
-- **Planner & Coder → Gemini.** Both need to reason over repo-wide context
-  (file tree, plan, prior file contents, prior test failures); Gemini's
-  free-tier context window handles that better than Groq's smaller-context
-  free models.
-- **Tester → no LLM.** It runs the repo's real `pytest`/`npm test` inside
-  the sandbox and parses the exit code/output programmatically. Testing
-  should be deterministic, not LLM-judged.
-- **Reviewer → Groq.** A bounded "does this diff match the plan" check
-  doesn't need a large context window, and Groq's low latency makes it a
-  snappy final step.
+Every LLM-backed agent runs on **Groq**. The pipeline originally split work
+across Gemini and Groq, but Gemini's free tier turned out to be capped per
+Google Cloud *project* rather than per key — 20 requests/day, shared by
+every key issued under the same project — which a single multi-retry run
+exhausts on its own. Groq's per-key limits are both higher and genuinely
+independent per key, so spreading load across keys actually buys headroom
+there. See "Why Gemini was dropped" below for the receipts.
+
+- **Planner → Groq**, one dedicated key. Reads the task description and a
+  trimmed repo file tree, returns an ordered step plan.
+- **Coder → Groq**, *two* dedicated keys. The highest-*volume* agent by far
+  (one call per plan, plus one more per retry attempt), so unlike the other
+  agents it isn't pinned to a single key — see the algorithm below.
+- **Tester → no LLM, no key.** It runs the repo's real `pytest`/`npm test`
+  inside the sandbox and parses the exit code/output programmatically.
+  Testing should be deterministic, not LLM-judged.
+- **Reviewer → Groq**, one dedicated key. A bounded "does this diff match
+  the plan" check that needs to be fast and cheap, not clever.
 
 All provider calls go through `backend/agents/llm_client.py`'s
-`call_llm(provider="gemini"|"groq", messages=[...])` — swapping which
-provider an agent uses is a one-line change, not a rewrite.
+`call_llm(provider, messages=[...], api_key=...)` — swapping which provider
+(or which key) an agent uses is a one-line change, not a rewrite. The
+`provider` argument is kept even though only Groq is wired up today: adding
+a second provider back means adding one `_call_*` function and one dispatch
+entry, not touching four agent modules. `api_key` is always passed in
+explicitly by the caller; the client module itself has no notion of a single
+global key.
 
-> Gemini access uses the current `google-genai` SDK against
-> `GEMINI_MODEL=gemini-flash-latest` (Google's own alias for their current
-> recommended flash model). The older `google.generativeai` SDK and pinned
-> `gemini-1.5-*`/`gemini-2.5-*` model names are already sunset for new API
-> keys as of this writing — if `test_llm` 404s on the model, run
-> `client.models.list()` (see git history of this file / llm_client.py) to
-> see what's currently available to your key and adjust `GEMINI_MODEL` in
-> `.env`.
+### Four keys, one per agent role
+
+Each agent *role* gets its own dedicated key rather than one shared Groq key
+across the pipeline, so a role that burns through its quota can't starve the
+others. All four come from [console.groq.com/keys](https://console.groq.com/keys):
+
+| Role | Env var |
+|---|---|
+| Planner | `GROQ_API_KEY_PLANNER` |
+| Coder (slot A) | `GROQ_API_KEY_CODER_A` |
+| Coder (slot B) | `GROQ_API_KEY_CODER_B` |
+| Reviewer | `GROQ_API_KEY_REVIEWER` |
+
+Planner and Reviewer each just use their one key directly. The **Coder** is
+the one agent that switches between two keys, because it's called far more
+often than the other three combined.
+
+**Algorithm — least-recently-used + per-key cooldown + failover**
+(`backend/agents/services/key_pool.py`):
+
+1. **Least-recently-used first.** Whichever of the two keys was used
+   longest ago serves the next call. In the steady state that's plain
+   alternation (A, B, A, B…), halving the request pressure on either key
+   across a multi-retry run instead of hammering one key `MAX_TEST_RETRIES`
+   times in a row.
+2. **Cooldown on 429.** A rate-limited key is benched for a spell that
+   *doubles* per consecutive 429 (60s → 120s → 240s, capped at 480s), so
+   the next call skips straight to its sibling instead of paying
+   `call_llm`'s full backoff cycle against a key that's already known to be
+   out of quota. A success clears the penalty. Non-429 failures (bad key,
+   malformed request, transient 5xx) get a much shorter 15s bench — enough
+   to prefer the sibling on the next call, without writing off what might
+   have been one blip.
+3. **Failover, and never a hard stop.** If the chosen key's call fails for
+   *any* reason, the Coder immediately tries the other one before giving up
+   that attempt. Benched keys are still offered as a last resort, ordered by
+   whose cooldown expires soonest — so even with both keys throttled a call
+   attempts the one closest to recovery rather than failing outright.
+
+Why LRU rather than a plain alternate-by-attempt-number counter: a fixed
+counter keeps sending every even attempt to key A even when A is known to be
+rate-limited, wasting a full backoff cycle before failing over each time.
+LRU + cooldown skips the dead key outright, and self-corrects — the key that
+was skipped is the stalest one once it recovers, so it gets picked first and
+the load re-balances on its own. Recency is tracked with a pool-wide counter
+rather than a timestamp, since `time.monotonic()`'s ~15ms resolution on
+Windows makes two nearby calls read as equally recent, which would collapse
+the rotation onto one key.
+
+State is per-process and in-memory, which is exactly one shared pool under
+`celery -P solo` (what this project documents on Windows). Under a
+multi-process worker each process keeps its own view — still correct, just
+less well-informed; moving the pool to Redis is the upgrade path, and
+nothing outside `key_pool.py` would change.
+
+`AgentRun.output["key_slot"]` records which key actually served a run (the
+Agent Trace shows it as *via groq · key A*), and `["keys_tried"]` keeps the
+full attempt list either way — so a silent failover is still visible after
+the fact rather than looking like a clean first-try success.
+
+### Known free-tier constraints (found in practice, not guessed)
+
+Both of these surfaced with live keys, and are worth knowing before assuming
+a failure means a bad key:
+
+- **Groq's `llama-3.1-8b-instant` free tier caps at ~6000 tokens/minute,
+  combined prompt + completion, per request.** This is the single biggest
+  constraint on the pipeline. Requesting `max_output_tokens=16384` fails
+  *every single time* with a 413 ("Request too large … Limit 6000,
+  Requested 18269") — the output-token ask alone blows past the ceiling
+  before the prompt is even counted. So every agent reserves only what its
+  output actually needs, leaving the rest of the budget for the prompt:
+  Coder `3000` (`_CODER_MAX_OUTPUT_TOKENS`), Planner `1500`
+  (`MAX_PLAN_OUTPUT_TOKENS` — its prompt carries the repo file tree),
+  Reviewer `1024` (`MAX_REVIEW_OUTPUT_TOKENS` — its prompt carries 6000
+  chars of diff). A Coder response that still gets truncated comes back as
+  `finish_reason=length`, which `llm_client.py` raises as an explicit
+  token-budget error rather than letting it surface downstream as a
+  baffling JSON parse failure.
+- **Why Gemini was dropped: its free tier is limited per *Google Cloud
+  project*, not per API key** — confirmed via the actual 429 payload:
+  `quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier`, `limit: 20`
+  requests/day. Two keys issued from the same Google account under the same
+  project **share that one 20/day pool** — they do not double it, and the
+  default "quick create" flow in AI Studio reuses the same project every
+  time. 20 requests/day doesn't survive normal dev on a pipeline that makes
+  up to 4 Coder calls per run. Groq's per-key limits, by contrast, are
+  independent per key, which is what makes the two-key Coder rotation
+  worth anything at all.
 
 ## Repo layout
 
@@ -51,7 +145,7 @@ docker-compose.yml   Redis only (broker + Celery result backend)
 
 - Python 3.11+, Node 18+, Git
 - **Docker Desktop** running — required for the sandbox (Coder/Tester execution) and for Redis via compose
-- A free [Google AI Studio](https://aistudio.google.com/) API key (Gemini) and a free [Groq](https://console.groq.com/) API key
+- **Four free API keys**, all from [Groq](https://console.groq.com/keys) — one Groq account can issue multiple keys, so this doesn't require four separate accounts. See "Four keys, one per agent role" above for why four.
 
 ## Setup
 
@@ -79,10 +173,10 @@ cd backend
 python -m venv venv
 venv\Scripts\activate            # venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
-copy .env.example .env           # cp on macOS/Linux -- then fill in GOOGLE_API_KEY / GROQ_API_KEY
+copy .env.example .env           # cp on macOS/Linux -- then fill in the four GROQ_API_KEY_* vars
 python manage.py migrate
 python manage.py createsuperuser # optional, for the /admin audit-trail view
-python manage.py test_llm        # optional smoke test that both API keys work
+python manage.py test_llm        # optional smoke test that all four keys work (tests each individually)
 python manage.py runserver
 ```
 
@@ -112,8 +206,10 @@ Open the printed Vite URL (default `http://localhost:5173`).
 > Reviewer (Groq, 0.4s, approved), landed on `done` on the first attempt
 > (no retries needed), and the sandbox container was cleaned up
 > automatically. `demo_repo` was reset to its pristine failing-test state
-> afterward. (This run predates the switch to `github_url` below -- tasks
-> pointed at a `repo_path` on the server's own disk at the time.)
+> afterward. (This run predates two later changes: the switch to
+> `github_url` below -- tasks pointed at a `repo_path` on the server's own
+> disk at the time -- and the move to Groq-only, so the Planner/Coder
+> providers and timings above are the Gemini-era ones.)
 
 Tasks now take a **public GitHub repo URL** (`github_url`) instead of a
 local filesystem path -- the pipeline shallow-clones it into a throwaway

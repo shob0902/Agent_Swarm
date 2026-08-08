@@ -207,22 +207,26 @@
     <span class="node">Reviewer</span>
   </div>
 
-  <div class="meta">
+  <div class="meta" style="flex-wrap: wrap; row-gap: 18px;">
     <div>
       <div class="label">Backend</div>
       <div class="value">Django 5 · DRF · Celery · Redis</div>
     </div>
     <div>
       <div class="label">Frontend</div>
-      <div class="value">React 18 · Vite</div>
+      <div class="value">React 18 · Vite · React Router</div>
     </div>
     <div>
-      <div class="label">LLM Providers</div>
-      <div class="value">Google Gemini · Groq</div>
+      <div class="label">LLM Provider</div>
+      <div class="value">Groq · 4 keys, one per agent role</div>
     </div>
     <div>
       <div class="label">Isolation</div>
       <div class="value">Docker (sandboxed, no network)</div>
+    </div>
+    <div>
+      <div class="label">Auth</div>
+      <div class="value">Google / GitHub OAuth · email+password · JWT</div>
     </div>
   </div>
 </div>
@@ -234,8 +238,8 @@
 <p>
 Agent Swarm automates a coding task the way a small engineering team would divide it up —
 except every "team member" is a specialized agent, and the whole exchange is logged.
-You give it a plain-English task description and the URL of a public GitHub repository. From
-there, four cooperating agents take over:
+You sign in with a private account, then give it a plain-English task description and the URL
+of a public GitHub repository. From there, four cooperating agents take over:
 </p>
 
 <ul>
@@ -250,6 +254,13 @@ If the tests fail, the Coder gets another shot — with the actual failure outpu
 a bounded number of retries, instead of looping forever or silently giving up. A React dashboard polls
 the backend and renders all of this as a live timeline (the <strong>Agent Trace</strong>), plus a diff
 viewer for exactly what the Coder changed.
+</p>
+
+<p>
+Every task, run, and diff belongs to exactly one account and is invisible to everyone else — this is
+now a genuine multi-tenant product, not a single-user local tool: sign in with Google, GitHub, or
+email/password, and a <strong>Task History</strong> sidebar (searchable, with favorite/rename/archive/delete)
+keeps every past run one click away, the same shape as ChatGPT's or Claude's conversation history.
 </p>
 
 <div class="callout">
@@ -272,13 +283,14 @@ viewer for exactly what the Coder changed.
   <tr><td><strong>Async pipeline</strong></td><td>Celery + Redis</td><td>Runs the Planner→Coder→Tester→Reviewer chain off the request thread; Redis is both the broker and result backend</td></tr>
   <tr><td><strong>Database</strong></td><td>SQLite (dev)</td><td>Standard Django ORM only — no SQLite-only features — so it's a config change away from Postgres</td></tr>
   <tr><td><strong>Sandbox</strong></td><td>Docker, via the <code>docker</code> Python SDK</td><td>One ephemeral, network-disabled container per Coder-write / Tester run</td></tr>
-  <tr><td><strong>Planner LLM</strong></td><td>Google Gemini (<code>google-genai</code> SDK)</td><td>Repo-wide reasoning and task decomposition into a step plan</td></tr>
-  <tr><td><strong>Coder LLM</strong></td><td>Google Gemini</td><td>Whole-file rewrites, given the plan + relevant file contents + prior test failures</td></tr>
+  <tr><td><strong>Planner LLM</strong></td><td>Groq (Llama 3.1 8B Instant), one dedicated key</td><td>Repo-wide reasoning and task decomposition into a step plan</td></tr>
+  <tr><td><strong>Coder LLM</strong></td><td>Groq, <em>two</em> dedicated keys</td><td>Whole-file rewrites, given the plan + relevant file contents + prior test failures — rotates least-recently-used-first between its two keys, with a per-key cooldown on rate limits and failover (Section 3)</td></tr>
   <tr><td><strong>Tester</strong></td><td>pytest / npm test (no LLM)</td><td>Deterministic pass/fail inside the sandbox</td></tr>
-  <tr><td><strong>Reviewer LLM</strong></td><td>Groq (Llama 3.1 8B Instant)</td><td>Fast, bounded "does this diff match the plan" check</td></tr>
-  <tr><td><strong>Frontend</strong></td><td>React 18 + Vite</td><td>Task submission, live Agent Trace timeline, diff viewer</td></tr>
+  <tr><td><strong>Reviewer LLM</strong></td><td>Groq (Llama 3.1 8B Instant), one dedicated key</td><td>Fast, bounded "does this diff match the plan" check</td></tr>
+  <tr><td><strong>Auth</strong></td><td>django-allauth + dj-rest-auth + djangorestframework-simplejwt</td><td>Google/GitHub OAuth, email/password, JWT issuance — not hand-rolled</td></tr>
+  <tr><td><strong>Frontend</strong></td><td>React 18 + Vite + React Router</td><td>Task submission, live Agent Trace timeline, diff viewer, auth pages, task history</td></tr>
   <tr><td><strong>Diff rendering</strong></td><td>react-diff-viewer-continued</td><td>Renders the Coder's before/after per file</td></tr>
-  <tr><td><strong>Styling</strong></td><td>Custom neumorphic CSS (light + dark)</td><td>Soft-UI theme driven entirely by CSS custom properties</td></tr>
+  <tr><td><strong>Styling</strong></td><td>Custom neumorphic CSS (light + dark)</td><td>Soft-UI theme driven entirely by CSS custom properties, mobile-first breakpoints</td></tr>
 </table>
 </section>
 
@@ -286,21 +298,84 @@ viewer for exactly what the Coder changed.
 <section>
 <h2>3. Why This Tech Stack</h2>
 
-<h3>Two LLM providers, on purpose</h3>
+<h3>One LLM provider (Groq), four API keys</h3>
 <p>
-This is a deliberate design choice, not two APIs bolted on at random:
+Every LLM-backed agent runs on Groq. This is a deliberate design choice, not an API bolted on at
+random — and it's a revision of an earlier one: the pipeline originally split work across Google
+Gemini (Planner/Coder) and Groq (Reviewer), until Gemini's free tier turned out to be capped per
+Google Cloud <em>project</em> rather than per key. See the constraints callout below.
 </p>
 <ul>
-  <li><strong>Planner &amp; Coder → Gemini.</strong> Both need to reason over repo-wide context — the file tree, the plan, prior file contents, and (on retry) the previous test failure. Gemini's context window handles that comfortably on the free tier.</li>
-  <li><strong>Tester → no LLM at all.</strong> Test results should be deterministic and reproducible. Programmatically parsing a real <code>pytest</code> exit code and output is strictly more trustworthy than asking a model to "judge" whether tests passed.</li>
-  <li><strong>Reviewer → Groq.</strong> A bounded, final "does this look reasonable" check doesn't need a large context window — it needs to be fast and cheap. Groq's low latency makes it a snappy last step rather than a bottleneck.</li>
+  <li><strong>Planner → Groq</strong>, one dedicated key. Reads repo-wide context — the file tree and task description — and returns an ordered step plan.</li>
+  <li><strong>Coder → Groq, <em>two</em> dedicated keys.</strong> The Coder is the highest-<em>volume</em> agent by far (one call per plan, plus one more per retry attempt) — so unlike the other three agents it isn't pinned to a single key. See the algorithm below.</li>
+  <li><strong>Tester → no LLM at all</strong>, and so no key. Test results should be deterministic and reproducible. Programmatically parsing a real <code>pytest</code> exit code and output is strictly more trustworthy than asking a model to "judge" whether tests passed.</li>
+  <li><strong>Reviewer → Groq</strong>, one dedicated key. A bounded, final "does this look reasonable" check needs to be fast and cheap, not clever. Groq's low latency makes it a snappy last step rather than a bottleneck.</li>
 </ul>
 <p>
 All provider calls go through one abstraction, <code>agents/llm_client.py</code>'s
-<code>call_llm(provider, messages)</code>, so swapping which provider any agent uses is a
-one-line change — not a rewrite. It also centralizes the free-tier handling both providers need:
-exponential backoff with jitter on 429s, capped at 3 retries.
+<code>call_llm(provider, messages, api_key)</code>, so swapping which provider <em>or key</em> an
+agent uses is a one-line change — not a rewrite. The <code>provider</code> argument is kept even
+though only Groq is wired up today: <code>AgentRun.provider</code> records it per run, and adding a
+second provider back means adding one <code>_call_*</code> function plus one dispatch entry, not
+touching four agent modules. <code>api_key</code> is always passed in explicitly by the caller; the
+client module has no notion of a single global key. It also centralizes the free-tier handling every
+agent needs: exponential backoff with jitter on 429s, capped at 3 retries, then surfaced as a
+distinct <code>LLMRateLimitError</code> so callers can tell "this key is out of quota" apart from
+"this request was bad."
 </p>
+
+<h4>Four keys, one per agent role</h4>
+<p>
+Each agent <em>role</em> gets its own dedicated key rather than one shared Groq key across the whole
+pipeline, so a role that burns through its quota can't starve the others:
+</p>
+<table>
+  <tr><th>Role</th><th>Env var</th><th>Keys</th></tr>
+  <tr><td>Planner</td><td><code>GROQ_API_KEY_PLANNER</code></td><td>1</td></tr>
+  <tr><td>Coder (slot A)</td><td><code>GROQ_API_KEY_CODER_A</code></td><td rowspan="2">2</td></tr>
+  <tr><td>Coder (slot B)</td><td><code>GROQ_API_KEY_CODER_B</code></td></tr>
+  <tr><td>Reviewer</td><td><code>GROQ_API_KEY_REVIEWER</code></td><td>1</td></tr>
+  <tr><td>Tester</td><td>—</td><td>0 (no LLM)</td></tr>
+</table>
+
+<h4>The Coder's switching algorithm: least-recently-used + per-key cooldown + failover</h4>
+<p>
+Implemented in <code>agents/services/key_pool.py</code>, which the Coder consults on every call:
+</p>
+<ol class="steps">
+  <li><strong>Least-recently-used first.</strong> Whichever of the two keys was used longest ago serves the next call. In the steady state that's plain alternation (A, B, A, B…), halving the request pressure on either key across a multi-retry run instead of hammering one key <code>MAX_TEST_RETRIES</code> times in a row.</li>
+  <li><strong>Cooldown on rate limits.</strong> A key that returns a 429 is benched for a period that <em>doubles</em> per consecutive rate limit (60s → 120s → 240s, capped at 480s), so the next call skips straight to its sibling rather than paying <code>call_llm</code>'s full backoff cycle against a key already known to be out of quota. A success clears the penalty. A non-429 failure — bad key, malformed request, transient 5xx — gets a much shorter 15s bench instead: enough to prefer the sibling on the next call, without writing off what might have been a single blip.</li>
+  <li><strong>Failover, and never a hard stop.</strong> If the chosen key's call fails for any reason, the Coder immediately tries the other before giving up that attempt. Benched keys are still offered as a last resort, ordered by whose cooldown expires soonest — so even with both keys throttled, a call attempts the one closest to recovery rather than failing outright.</li>
+</ol>
+<p>
+<strong>Why LRU rather than a plain alternate-by-attempt-number counter.</strong> A fixed counter
+keeps sending every even attempt to key A even when A is known to be rate-limited, wasting a full
+backoff cycle before failing over — every single time. LRU plus cooldown skips the dead key outright,
+and it self-corrects: the key that got skipped is the stalest one once its cooldown expires, so it's
+picked first and the load re-balances on its own instead of staying permanently lopsided. Recency is
+tracked with a pool-wide counter rather than a timestamp, because <code>time.monotonic()</code>'s
+~15ms resolution on Windows makes two nearby calls read as equally recent — which ties the
+comparison and silently collapses the rotation onto one key.
+</p>
+<p>
+Pool state is per-process and in-memory, which under <code>celery -P solo</code> (what this project
+documents on Windows) is exactly one pool shared by every pipeline run. Under a multi-process worker
+each process keeps its own view — still correct, just less well-informed; moving the pool to Redis is
+the upgrade path, and nothing outside <code>key_pool.py</code> would change.
+<code>AgentRun.output["key_slot"]</code> records which key actually served a run — the Agent Trace
+surfaces it as <em>via groq · key A</em> — and <code>["keys_tried"]</code> keeps the full attempt
+list regardless of outcome, so a silent failover stays visible after the fact instead of looking
+like a clean first-try success.
+</p>
+
+<div class="callout warn keep-together">
+<h4>Known free-tier constraints (found in practice, not guessed)</h4>
+<p>Both of these surfaced with live keys, and between them they shaped the whole provider setup:</p>
+<ul>
+  <li><strong>Groq's <code>llama-3.1-8b-instant</code> free tier caps at ~6000 tokens/minute</strong>, combined prompt + completion, per request — the single biggest constraint on this pipeline. Requesting <code>max_output_tokens=16384</code> fails every single time with a 413 ("Request too large … Limit 6000, Requested 18269"): the output-token ask alone exceeds the ceiling before the prompt is even counted. So every agent reserves only what its output actually needs, leaving the rest of the budget for its prompt — Coder <code>3000</code> (<code>_CODER_MAX_OUTPUT_TOKENS</code>), Planner <code>1500</code> (<code>MAX_PLAN_OUTPUT_TOKENS</code>; its prompt carries the repo file tree), Reviewer <code>1024</code> (<code>MAX_REVIEW_OUTPUT_TOKENS</code>; its prompt carries 6000 chars of diff). A response that still gets truncated comes back as <code>finish_reason=length</code>, which <code>llm_client.py</code> raises as an explicit token-budget error rather than letting it surface downstream as a baffling JSON parse failure.</li>
+  <li><strong>Why Gemini was dropped: its free tier is limited per Google Cloud <em>project</em>, not per API key</strong> — confirmed via the actual 429 payload: <code>quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier</code>, <code>limit: 20</code> requests/day. Two API keys issued from the same Google account under the same project share that one 20/day pool — they do not double it, and AI Studio's default "quick create" flow reuses the same project every time. 20 requests/day doesn't survive normal development on a pipeline that can make four Coder calls in a single run. Groq's per-key limits, by contrast, are genuinely independent per key — which is what makes the two-key Coder rotation worth anything at all.</li>
+</ul>
+</div>
 
 <h3>Django + DRF + Celery + Redis</h3>
 <p>
@@ -338,6 +413,25 @@ polling (every 2–3 seconds) gets that job done with a fraction of the complexi
 layer, and it's what actually shipped for v1 — Django Channels remains a clearly-scoped stretch
 goal rather than a requirement the demo depends on.
 </p>
+
+<h3>django-allauth + dj-rest-auth, not hand-rolled OAuth</h3>
+<p>
+OAuth's code-exchange flow, CSRF/state handling, and per-provider quirks (Google vs. GitHub have
+different token and profile-fetch shapes) are exactly the kind of security-critical, easy-to-get-
+subtly-wrong code worth not writing from scratch. <code>django-allauth</code> already implements all
+of it, tested across a huge number of real deployments; <code>dj-rest-auth</code> wraps it in a JSON
+API instead of allauth's default server-rendered pages, which is what an SPA needs.
+</p>
+
+<h3>Both JWTs as httpOnly cookies</h3>
+<p>
+The access <em>and</em> refresh tokens are delivered as <code>httpOnly</code>, <code>SameSite=Lax</code>
+cookies — never handed to page JavaScript, never touching <code>localStorage</code>. This closes off
+the most common JWT footgun (an XSS payload reading a token out of storage and exfiltrating it) at
+essentially no extra cost, since <code>dj-rest-auth</code> supports this mode natively. The frontend
+never sees or manages a token at all; it just sends requests with <code>withCredentials: true</code>
+and lets the browser do the rest.
+</p>
 </section>
 
 <!-- ============================ 4. HOW IT WORKS ============================ -->
@@ -361,12 +455,12 @@ goal rather than a requirement the demo depends on.
     <!-- Planner -->
     <rect x="20" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
     <text x="95" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Planner</text>
-    <text x="95" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Gemini</text>
+    <text x="95" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Groq · 1 key</text>
 
     <!-- Coder -->
     <rect x="220" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
     <text x="295" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Coder</text>
-    <text x="295" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Gemini</text>
+    <text x="295" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Groq · 2 keys (LRU)</text>
 
     <!-- Tester -->
     <rect x="420" y="85" width="150" height="64" rx="10" fill="#F6F6FB" stroke="#8A8DA0" stroke-width="1.5"/>
@@ -376,7 +470,7 @@ goal rather than a requirement the demo depends on.
     <!-- Reviewer -->
     <rect x="620" y="85" width="150" height="64" rx="10" fill="#EEEEFA" stroke="#6C6FC4" stroke-width="1.5"/>
     <text x="695" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#23242E">Reviewer</text>
-    <text x="695" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Groq</text>
+    <text x="695" y="130" text-anchor="middle" font-size="10" fill="#6C6FC4">Groq · 1 key</text>
 
     <!-- Done -->
     <text x="855" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#4E9C74">done</text>
@@ -402,7 +496,7 @@ goal rather than a requirement the demo depends on.
 <ol class="steps">
   <li><strong>Submit</strong> — A task (description + local repo path) is created via <code>POST /api/tasks/</code> and enqueued as a Celery job.</li>
   <li><strong>Plan</strong> — The Planner reads the task description and a trimmed repo file tree, and returns strict JSON: an ordered list of concrete implementation steps.</li>
-  <li><strong>Code</strong> — The Coder selects the files the plan actually names (or falls back to a size-capped sweep), sends their contents plus the plan to Gemini, and gets back whole-file rewrites. Those are written straight into the repo; a real <code>git diff</code> is computed immediately after.</li>
+  <li><strong>Code</strong> — The Coder selects the files the plan actually names (or falls back to a size-capped sweep), sends their contents plus the plan to Groq (on whichever of its two keys the pool picks), and gets back whole-file rewrites. Those are written straight into the repo; a real <code>git diff</code> is computed immediately after.</li>
   <li><strong>Test</strong> — The modified repo is bind-mounted into a fresh, network-disabled Docker container and its real test suite runs (<code>pytest</code> by default). Exit code and output are parsed — no model involved.</li>
   <li><strong>Retry if needed</strong> — On failure, the Coder runs again with the actual test output as context, up to <code>MAX_TEST_RETRIES</code> (default 3) attempts, before the task is marked <code>failed</code>.</li>
   <li><strong>Review</strong> — Once tests pass, the Reviewer checks the final diff against the plan and returns <code>{"approved", "concerns"}</code>.</li>
@@ -422,20 +516,86 @@ Django admin (<code>/admin/</code>), which needed zero extra frontend work to be
 <h4>Data model</h4>
 <table>
   <tr><th>Model</th><th>Key fields</th></tr>
-  <tr><td><strong>Task</strong></td><td><code>description</code>, <code>github_url</code>, <code>status</code> (pending → planning → coding → testing → review → done/failed)</td></tr>
+  <tr><td><strong>User</strong> <span class="badge">accounts app</span></td><td><code>email</code> (unique, login identity), <code>name</code>, <code>avatar_url</code>, <code>signup_provider</code>, <code>role</code>, <code>date_joined</code> — no <code>username</code> field at all</td></tr>
+  <tr><td><strong>Task</strong></td><td><code>user</code> (FK, ownership), <code>title</code>, <code>description</code>, <code>github_url</code>, <code>status</code> (pending → planning → coding → testing → review → done/failed), <code>is_favorite</code>, <code>is_archived</code></td></tr>
   <tr><td><strong>AgentRun</strong></td><td><code>task</code> (FK), <code>agent_type</code>, <code>provider</code>, <code>input_context</code>, <code>output</code>, <code>status</code>, <code>retry_count</code>, <code>duration_ms</code></td></tr>
 </table>
+<p>
+<code>AgentRun</code> deliberately has no <code>user_id</code> of its own — ownership is enforced
+transitively through <code>AgentRun.task.user</code>, its existing FK relationship. Duplicating the
+owner onto every child table would just be redundant, driftable state; every query that needs to
+check "is this mine" already goes through the one <code>Task.user</code> column.
+</p>
 </section>
 
-<!-- ============================ 5. HOW TO RUN ============================ -->
+<!-- ============================ 5. AUTH & MULTI-TENANCY ============================ -->
 <section>
-<h2>5. How to Start and Run It</h2>
+<h2>5. Authentication &amp; Multi-Tenancy</h2>
+
+<p>
+Every account is private: signing in is required before any task can be created, and every API
+endpoint only ever returns data owned by the caller. This section covers how accounts work and
+how isolation is enforced.
+</p>
+
+<h3>Signing in</h3>
+<ul>
+  <li><strong>Email + password</strong> — works today, no external setup required. Signup logs you
+  in immediately (no email-verification step configured for this project).</li>
+  <li><strong>Google / GitHub OAuth</strong> — fully implemented end-to-end, but each provider needs
+  a real Client ID/Secret registered in that provider's own developer console before its button
+  goes live (<code>backend/.env.example</code> and <code>frontend/.env.example</code> document exactly
+  what to create and where). Until then, the buttons render disabled with a tooltip rather than
+  pretending to work.</li>
+  <li><strong>One account per email, regardless of provider</strong> — if the same email signs up via
+  email/password and later clicks "Continue with Google," a custom <code>SocialAccountAdapter</code>
+  connects the new login to the existing account instead of erroring or creating a duplicate.</li>
+</ul>
+
+<h3>Session mechanics</h3>
+<p>
+The backend issues a short-lived JWT access token and a longer-lived refresh token, both as
+<code>httpOnly</code> cookies (see Section 3 for why). The frontend's axios client sends
+<code>withCredentials: true</code> on every request; on a <code>401</code> it silently calls the
+refresh endpoint once and retries the original request before giving up and redirecting to
+<code>/login</code>. Logging out blacklists the refresh token server-side, not just clears the cookie,
+so a stolen-but-unused refresh token can't be replayed after logout.
+</p>
+
+<h3>Data isolation</h3>
+<p>
+Every <code>Task</code> list endpoint filters to <code>request.user</code>'s own rows only — another
+user's tasks are never even considered, let alone returned. Reaching for a specific task/run by id
+that belongs to someone else returns <strong>403 Forbidden</strong>, not a 404 — Django REST
+Framework's default object-permission behavior once an <code>IsOwner</code> permission class is
+wired in, so no special-casing was needed to meet that requirement. All of this sits behind a
+global default of <code>IsAuthenticated</code>, so a new endpoint is private by default and has to
+opt out, not the other way around.
+</p>
+
+<h3>Task History</h3>
+<p>
+The sidebar (previously a flat task list) now supports free-text search over title/description,
+three filters (Recent / Favorites / Archived), inline rename, a favorite/pin toggle, archive
+(reversible, hides from "Recent"), and delete (permanent, confirmed). All of it is scoped to the
+signed-in user the same way task creation is.
+</p>
+
+<figure>
+  <img src="assets/login-page.png" alt="Sign in page with Google/GitHub buttons and email/password form" style="max-width: 340px; margin: 0 auto;" />
+  <figcaption>Sign-in page — OAuth buttons render disabled until real provider credentials are configured; email/password works immediately.</figcaption>
+</figure>
+</section>
+
+<!-- ============================ 6. HOW TO RUN ============================ -->
+<section>
+<h2>6. How to Start and Run It</h2>
 
 <h3>Prerequisites</h3>
 <ul>
   <li>Python 3.11+, Node 18+, Git</li>
   <li><strong>Docker Desktop</strong>, running — required for the sandbox and for Redis via compose</li>
-  <li>A free <a href="https://aistudio.google.com/">Google AI Studio</a> API key (Gemini) and a free <a href="https://console.groq.com/">Groq</a> API key</li>
+  <li><strong>Four free API keys</strong>, all from <a href="https://console.groq.com/keys">Groq</a> — one Groq account can issue multiple keys, so this doesn't need four separate accounts. See "Four keys, one per agent role" in Section 3.</li>
 </ul>
 
 <h3>Setup</h3>
@@ -455,9 +615,11 @@ docker build -t agent-swarm-sandbox:latest -f docker/sandbox.Dockerfile .</pre>
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env      REM then fill in GOOGLE_API_KEY / GROQ_API_KEY
+copy .env.example .env      REM then fill in the four GROQ_API_KEY_* vars (Section 3)
+                             REM (GOOGLE/GITHUB_CLIENT_ID+SECRET optional -- see Section 5)
 python manage.py migrate
-python manage.py test_llm   REM optional: confirms both API keys work</pre>
+python manage.py createsuperuser   REM optional: gives you /admin/ access
+python manage.py test_llm          REM optional: tests each of the four API keys individually</pre>
   </li>
   <li>
     <strong>Backend — run the API server</strong> (terminal 1)
@@ -471,6 +633,7 @@ python manage.py test_llm   REM optional: confirms both API keys work</pre>
     <strong>Frontend</strong> (terminal 3)
     <pre>cd frontend
 npm install
+copy .env.example .env   REM optional: VITE_GOOGLE_CLIENT_ID / VITE_GITHUB_CLIENT_ID
 npm run dev</pre>
     Open the URL Vite prints — by default <code>http://localhost:5173</code>.
   </li>
@@ -478,19 +641,22 @@ npm run dev</pre>
 
 <h3>Try it — the built-in demo task</h3>
 <p>
-A ready-made target repo ships in <code>demo_repo/</code>: a tiny Flask app whose <code>/signup</code>
-endpoint has no validation, with two tests that fail against it. From the dashboard, submit:
+Sign up (email/password is enough) — you'll land on the dashboard. A ready-made target repo ships
+in <code>demo_repo/</code>: a tiny Flask app whose <code>/signup</code> endpoint has no validation,
+with tests that fail against it. Push that folder to a public GitHub repo of your own (tasks now take
+a <code>github_url</code>, not a local path — Section 4's Coder note explains why), then submit:
 </p>
 <div class="callout keep-together">
   <p><strong>Description:</strong><br/>
   Add input validation to the /signup endpoint: reject requests with an invalid email format or a
   missing password with a 400 response.</p>
-  <p style="margin-bottom:0"><strong>Repo path:</strong><br/>
-  <code>C:\intelFPGA\18.1\Practice\agent_swarm\demo_repo</code></p>
+  <p style="margin-bottom:0"><strong>GitHub repo URL:</strong><br/>
+  <code>https://github.com/&lt;you&gt;/demo_repo</code></p>
 </div>
 <p>
-Watch the Agent Trace go Planner → Coder → Tester → Reviewer and land on <code>done</code>. To run it
-again afterward, reset the repo first so the tests are failing again: <code>cd demo_repo &amp;&amp; git checkout -- .</code>
+Watch the Agent Trace go Planner → Coder → Tester → Reviewer and land on <code>done</code>. It'll show
+up in the Task History sidebar afterward — searchable, favoritable, renameable — right where you'd
+expect it in a ChatGPT/Claude-style history list.
 </p>
 
 <div class="callout warn keep-together">
@@ -499,13 +665,14 @@ again afterward, reset the repo first so the tests are failing again: <code>cd d
   <li><strong><code>'docker' is not recognized</code> in PowerShell</strong> — a per-user Docker Desktop install doesn't always add itself to PATH. Use the full path once (<code>C:\Users\&lt;you&gt;\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe</code>), or add that folder to your user <code>PATH</code> permanently and reopen the terminal.</li>
   <li><strong>"Failed to create task" with no POST logged on the backend</strong> — usually a leftover <code>npm run dev</code> process holding port 5173, pushing your actual tab onto 5174/5175, which the backend's <code>CORS_ALLOWED_ORIGINS</code> doesn't trust. Close stray dev-server terminals, or widen the allow-list in <code>backend/.env</code>.</li>
   <li><strong>Backend picks up <code>.env</code> only at startup</strong> — restart <code>runserver</code> after editing it.</li>
+  <li><strong>"Continue with Google/GitHub" stays greyed out</strong> — expected until real <code>CLIENT_ID</code>/<code>CLIENT_SECRET</code> values are set in both <code>backend/.env</code> and <code>frontend/.env</code> (Section 5). Email/password isn't affected.</li>
 </ul>
 </div>
 </section>
 
-<!-- ============================ 6. SCREENSHOTS ============================ -->
+<!-- ============================ 7. SCREENSHOTS ============================ -->
 <section>
-<h2>6. Screenshots</h2>
+<h2>7. Screenshots</h2>
 
 <figure>
   <img src="assets/loading-screen.png" alt="Loading screen" />
@@ -514,22 +681,29 @@ again afterward, reset the repo first so the tests are failing again: <code>cd d
 
 <figure>
   <img src="assets/landing-page.png" alt="Landing page" />
-  <figcaption>Landing page — explains the pipeline (Planner → Coder → Tester → Reviewer) and links into the dashboard.</figcaption>
+  <figcaption>Landing page — explains the pipeline (Planner → Coder → Tester → Reviewer) and links to sign-in, or straight to the dashboard once you're already signed in.</figcaption>
 </figure>
 
 <figure>
-  <img src="assets/dashboard-trace.png" alt="Dashboard with a completed Agent Trace and diff" />
-  <figcaption>Dashboard after a completed run — task list on the left, live Agent Trace and the Coder's diff on the right.</figcaption>
+  <img src="assets/dashboard-history.png" alt="Dashboard with the Task History sidebar populated" />
+  <figcaption>Dashboard — the New Task form now takes a GitHub URL, and the Task History sidebar (search, Recent/Favorites/Archived filters, per-task favorite/rename/archive/delete) replaces the old flat task list.</figcaption>
+</figure>
+
+<figure>
+  <img src="assets/dashboard-trace.png" alt="Dashboard with a completed Agent Trace" />
+  <figcaption>Selecting a task shows its live Agent Trace — unchanged in spirit from v1, now sitting alongside the account-scoped history and user menu.</figcaption>
 </figure>
 </section>
 
-<!-- ============================ 7. NON-GOALS ============================ -->
+<!-- ============================ 8. NON-GOALS ============================ -->
 <section>
-<h2>7. Non-Goals (v1)</h2>
+<h2>8. Non-Goals (v1)</h2>
 <ul>
   <li>No multi-repo support — one <code>github_url</code> per task</li>
   <li>Public GitHub repos only — no private-repo auth, no non-GitHub git hosts</li>
-  <li>No authentication / user accounts — single-user local tool</li>
+  <li>No real OAuth without setup — Google/GitHub sign-in needs a Client ID/Secret registered by whoever deploys this; ships fully wired but inert until then</li>
+  <li>No email verification / password-reset delivery — no SMTP configured, so signup logs you in immediately rather than gating on a verification email</li>
+  <li>No org/team accounts — one flat namespace of individual users; <code>role</code> exists on the User model as a future-facing hook, not an enforced permission tier today</li>
   <li>No LLM-based test generation — the Tester only runs a repo's existing tests</li>
   <li>No code execution outside the sandboxed container, ever</li>
 </ul>

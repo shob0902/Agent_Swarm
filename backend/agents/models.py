@@ -64,9 +64,14 @@ class AgentRun(models.Model):
         ("reviewer", "reviewer"),
     ]
     PROVIDER_CHOICES = [
-        ("gemini", "gemini"),
         ("groq", "groq"),
+        # Deterministic stages (the Tester) call no model at all.
         ("none", "none"),
+        # Legacy: the pipeline used to split Planner/Coder across Gemini and
+        # is now Groq-only (see orchestrator/settings.py for why). Kept as a
+        # valid choice purely so AgentRun rows written before the switch
+        # still render with a label in /admin instead of as a raw value.
+        ("gemini", "gemini"),
     ]
     STATUS_CHOICES = [
         ("pending", "pending"),

@@ -4,17 +4,17 @@
    built off these variables so no component CSS needs to change between
    modes -- only the tokens do. Toggle via [data-theme] on <html>. */
 :root {
-  --base: #E6E7EE;
-  --shadow-dark: #B8B9C4;
+  --base: #EDEDED;
+  --shadow-dark: #C8C8C8;
   --shadow-light: #FFFFFF;
-  --accent: #8B8FC4;
+  --accent: #D7263D;
   --accent-contrast: #FFFFFF;
-  --text-primary: #2E2F3B;
-  --text-secondary: #6B6E80;
-  --text-muted: #9497A8;
+  --text-primary: #2B2B2B;
+  --text-secondary: #5C5C5C;
+  --text-muted: #8A8A8A;
 
   --success: #5FAE85;
-  --danger: #D97878;
+  --danger: #B8443D;
   --warning: #D6B15C;
   --info: #6E9FD6;
 
@@ -25,17 +25,17 @@
 }
 
 [data-theme="dark"] {
-  --base: #2A2D3A;
-  --shadow-dark: #1E202A;
-  --shadow-light: #363A4A;
-  --accent: #A5A9E8;
-  --accent-contrast: #1E202A;
-  --text-primary: #E6E7F0;
-  --text-secondary: #A9ACC0;
-  --text-muted: #6B6E80;
+  --base: #1A1A1A;
+  --shadow-dark: #0D0D0D;
+  --shadow-light: #272727;
+  --accent: #FF3B3B;
+  --accent-contrast: #FFFFFF;
+  --text-primary: #EEEEEE;
+  --text-secondary: #AAAAAA;
+  --text-muted: #777777;
 
   --success: #6FBF98;
-  --danger: #E08888;
+  --danger: #E0665F;
   --warning: #E0C177;
   --info: #82AEE0;
 }

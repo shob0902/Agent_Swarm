@@ -13,3 +13,9 @@ frontend/.env
 # Editors / OS
 .vscode/
 .DS_Store
+
+# Demo target repos -- each is its own standalone git repo pushed to GitHub
+# separately (the swarm clones them by URL), not content of this project.
+# demo_repo/ is already an embedded repo; this keeps the broken twin from
+# becoming a second one.
+demo_repo_broken/

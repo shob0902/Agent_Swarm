@@ -1,14 +1,31 @@
 """Provider-agnostic LLM abstraction.
 
-Every agent calls `call_llm(provider="gemini"|"groq", messages=[...])`
-instead of hardcoding an SDK inline. See Section 3 of the project brief for
-why two providers are used deliberately (Gemini for Planner/Coder's larger
-context window, Groq for the Reviewer's fast/cheap final check).
+Every agent calls `call_llm(provider="groq", messages=[...], api_key=...)`
+instead of hardcoding an SDK inline. The project originally split work
+across Gemini (Planner/Coder, for the larger context window) and Groq
+(Reviewer, for a fast/cheap final check); it now runs entirely on Groq
+because Gemini's free tier caps at 20 requests/day *per Google Cloud
+project* -- not per key -- which a single multi-retry pipeline run
+exhausts on its own. See Section 3 of the project brief.
 
-Free-tier rate limits (RPM/RPD) on both providers are hit during normal
-dev/testing, so 429s are retried with exponential backoff + jitter, capped
-at MAX_RETRIES. Any other error is not retried -- retrying a malformed
-request or an auth failure just burns free-tier budget for no benefit.
+The `provider` argument is kept even though only one provider is wired up
+today: `AgentRun.provider` records it per run, and adding a second provider
+back means adding one `_call_*` function plus one dispatch entry here, not
+touching four agent modules.
+
+`api_key` is always passed explicitly by the caller rather than read from
+a single global setting -- the project runs one dedicated key per agent
+role (GROQ_API_KEY_PLANNER, GROQ_API_KEY_CODER_A, GROQ_API_KEY_CODER_B,
+GROQ_API_KEY_REVIEWER; see settings.py), and the Coder additionally rotates
+between its two keys (see agents/services/key_pool.py). Keeping this module
+key-agnostic is what makes that possible without special-casing it here.
+
+Free-tier rate limits (RPM/RPD/TPM) are hit during normal dev/testing, so
+429s are retried with exponential backoff + jitter, capped at MAX_RETRIES,
+then surfaced as LLMRateLimitError so callers can tell "this key is out of
+quota" (rotate to another key) apart from "this request was bad" (don't).
+Any other error is not retried -- retrying a malformed request or an auth
+failure just burns free-tier budget for no benefit.
 """
 from __future__ import annotations
 
@@ -20,9 +37,6 @@ from typing import Any
 
 import groq
 from django.conf import settings
-from google import genai
-from google.genai import types as genai_types
-from google.genai.errors import ClientError as GenaiClientError
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +46,13 @@ BASE_DELAY_SECONDS = 1.0
 
 class LLMError(Exception):
     """Raised when a provider call fails (including after exhausting retries)."""
+
+
+class LLMRateLimitError(LLMError):
+    """The call was rate-limited and stayed rate-limited through every
+    backoff attempt. Split out from LLMError so a caller holding several
+    keys can penalize the specific key that ran out of quota, rather than
+    treating a 429 the same as a bad request (see services/key_pool.py)."""
 
 
 @dataclass
@@ -50,6 +71,7 @@ def call_llm(
     provider: str,
     messages: list[dict],
     *,
+    api_key: str,
     temperature: float = 0.2,
     max_output_tokens: int = 4096,
 ) -> LLMResponse:
@@ -59,23 +81,27 @@ def call_llm(
     {"role": "system"|"user"|"assistant", "content": str} dicts. Each
     provider-specific function below adapts this to its own SDK shape.
 
-    Raises LLMError on any failure (including exhausted retries) so callers
-    can catch a single exception type regardless of provider.
+    `api_key` is required and always explicit -- see the module docstring
+    for why this module never reads a key from settings itself.
+
+    Raises LLMError (or its LLMRateLimitError subclass) on any failure,
+    including exhausted retries, so callers can catch a single exception
+    type regardless of provider.
     """
-    if provider == "gemini":
-        fn = _call_gemini
-    elif provider == "groq":
-        fn = _call_groq
-    else:
-        raise ValueError(f"Unknown LLM provider: {provider!r}")
+    try:
+        fn = _PROVIDERS[provider]
+    except KeyError:
+        raise ValueError(f"Unknown LLM provider: {provider!r}") from None
 
     if not messages:
         raise ValueError("messages must be a non-empty list")
+    if not api_key:
+        raise LLMError(f"no API key provided for {provider} call")
 
     last_exc: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):
         try:
-            return fn(messages, temperature=temperature, max_output_tokens=max_output_tokens)
+            return fn(messages, api_key=api_key, temperature=temperature, max_output_tokens=max_output_tokens)
         except _RateLimitError as exc:
             last_exc = exc
             if attempt == MAX_RETRIES:
@@ -92,84 +118,11 @@ def call_llm(
         except Exception as exc:  # noqa: BLE001 - deliberately wrap every provider error
             raise LLMError(f"{provider} call failed: {exc}") from exc
 
-    raise LLMError(f"{provider} call failed after {MAX_RETRIES} retries (rate limited)") from last_exc
+    raise LLMRateLimitError(f"{provider} call failed after {MAX_RETRIES} retries (rate limited)") from last_exc
 
 
-def _call_gemini(messages: list[dict], *, temperature: float, max_output_tokens: int) -> LLMResponse:
-    """Uses the `google-genai` SDK (the older `google.generativeai` package
-    this originally targeted has since been fully sunset by Google, along
-    with the gemini-1.5-* models -- see GEMINI_MODEL in settings.py)."""
-    if not settings.GOOGLE_API_KEY:
-        raise LLMError("GOOGLE_API_KEY is not set")
-
-    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-
-    system_parts = [m["content"] for m in messages if m["role"] == "system"]
-    system_instruction = "\n\n".join(system_parts) or None
-
-    # Gemini's chat history uses role "model" instead of "assistant"; the
-    # final non-system message becomes the new prompt, everything before it
-    # is prior turns.
-    turns = [
-        {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
-        for m in messages
-        if m["role"] != "system"
-    ]
-    if not turns:
-        raise ValueError("messages must include at least one non-system message")
-    *history, last_turn = turns
-
-    chat = client.chats.create(
-        model=settings.GEMINI_MODEL,
-        history=history,
-        config=genai_types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-        ),
-    )
-    try:
-        response = chat.send_message(last_turn["parts"][0]["text"])
-    except GenaiClientError as exc:
-        if exc.code == 429:
-            raise _RateLimitError(str(exc)) from exc
-        raise
-
-    # A response cut off mid-output (most commonly MAX_TOKENS, e.g. the
-    # Coder asked to emit a large whole-file rewrite) produces truncated
-    # JSON downstream -- json.loads then fails with a confusing, unrelated-
-    # looking error like "Unterminated string at char 44" that gives no
-    # hint the real cause was an output-length budget, not malformed
-    # output. Surfacing the finish_reason directly here makes that
-    # diagnosable without digging through the raw response.
-    reason = _finish_reason(response)
-    if reason and reason != "STOP":
-        raise LLMError(
-            f"gemini response did not finish normally (finish_reason={reason}, "
-            f"max_output_tokens={max_output_tokens}) -- likely truncated output "
-            "rather than a malformed request; increase max_output_tokens for this "
-            "call if the requested content is legitimately long"
-        )
-
-    return LLMResponse(text=response.text, provider="gemini", model=settings.GEMINI_MODEL, raw=_safe_raw(response))
-
-
-def _finish_reason(response: Any) -> str | None:
-    try:
-        candidates = response.candidates
-        if not candidates:
-            return None
-        reason = candidates[0].finish_reason
-        return reason.value if hasattr(reason, "value") else (str(reason) if reason else None)
-    except (AttributeError, IndexError):
-        return None
-
-
-def _call_groq(messages: list[dict], *, temperature: float, max_output_tokens: int) -> LLMResponse:
-    if not settings.GROQ_API_KEY:
-        raise LLMError("GROQ_API_KEY is not set")
-
-    client = groq.Groq(api_key=settings.GROQ_API_KEY)
+def _call_groq(messages: list[dict], *, api_key: str, temperature: float, max_output_tokens: int) -> LLMResponse:
+    client = groq.Groq(api_key=api_key)
     try:
         response = client.chat.completions.create(
             model=settings.GROQ_MODEL,
@@ -180,8 +133,29 @@ def _call_groq(messages: list[dict], *, temperature: float, max_output_tokens: i
     except groq.RateLimitError as exc:
         raise _RateLimitError(str(exc)) from exc
 
-    text = response.choices[0].message.content
-    return LLMResponse(text=text, provider="groq", model=settings.GROQ_MODEL, raw=_safe_raw(response))
+    choice = response.choices[0]
+
+    # A response cut off mid-output (finish_reason="length", most commonly
+    # the Coder asked to emit a large whole-file rewrite against Groq's
+    # tight free-tier token ceiling) produces truncated JSON downstream --
+    # json.loads then fails with a confusing, unrelated-looking error like
+    # "Unterminated string at char 44" that gives no hint the real cause was
+    # an output-length budget. Surfacing finish_reason directly here makes
+    # that diagnosable without digging through the raw response.
+    if choice.finish_reason not in (None, "stop"):
+        raise LLMError(
+            f"groq response did not finish normally (finish_reason={choice.finish_reason}, "
+            f"max_output_tokens={max_output_tokens}) -- likely truncated output "
+            "rather than a malformed request; increase max_output_tokens for this "
+            "call if the requested content is legitimately long"
+        )
+
+    return LLMResponse(text=choice.message.content, provider="groq", model=settings.GROQ_MODEL, raw=_safe_raw(response))
+
+
+# Dispatch table -- one entry per supported provider. See the module
+# docstring for why this stays a table with a single entry in it.
+_PROVIDERS = {"groq": _call_groq}
 
 
 def _safe_raw(response: Any) -> Any:
@@ -189,11 +163,11 @@ def _safe_raw(response: Any) -> Any:
     AgentRun.output can persist the full response for offline debugging
     without needing to re-call the API (Section 3).
 
-    `mode="json"` is required, not just `model_dump()` -- Gemini responses
-    include raw `bytes` fields (e.g. candidates[].content.parts[].thought_signature)
-    that plain model_dump() leaves as bytes, which then blows up
-    AgentRun.output's JSONField save with a TypeError. mode="json" coerces
-    those to JSON-safe values (e.g. base64 strings) up front.
+    `mode="json"` is preferred over plain `model_dump()`: SDK responses can
+    carry raw `bytes` fields that plain model_dump() leaves as bytes, which
+    then blows up AgentRun.output's JSONField save with a TypeError.
+    mode="json" coerces those to JSON-safe values (e.g. base64 strings)
+    up front.
     """
     try:
         if hasattr(response, "model_dump"):

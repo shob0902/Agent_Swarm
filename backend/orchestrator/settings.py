@@ -153,19 +153,25 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 10
 CELERY_TASK_TIME_LIMIT = 60 * 12
 
-# --- LLM providers ----------------------------------------------------------
-GOOGLE_API_KEY = env("GOOGLE_API_KEY", default="")
-GROQ_API_KEY = env("GROQ_API_KEY", default="")
+# --- LLM provider (Groq) ----------------------------------------------------
+# Every LLM-backed agent runs on Groq. Gemini was dropped because its free
+# tier is capped per Google Cloud *project* rather than per API key (20
+# requests/day), which a single multi-retry pipeline run exhausts on its
+# own -- Groq's per-key limits are both higher and genuinely independent
+# per key, so spreading across keys actually buys headroom there.
+#
+# Four keys, one per agent role rather than one shared key, so a role that
+# burns through its quota can't starve the others. The Coder is the
+# highest-volume agent by far (one call per plan, plus one per retry
+# attempt), so it alone gets two keys and rotates between them -- see
+# agents/services/key_pool.py for the selection algorithm.
+GROQ_API_KEY_PLANNER = env("GROQ_API_KEY_PLANNER", default="")
+GROQ_API_KEY_CODER_A = env("GROQ_API_KEY_CODER_A", default="")
+GROQ_API_KEY_CODER_B = env("GROQ_API_KEY_CODER_B", default="")
+GROQ_API_KEY_REVIEWER = env("GROQ_API_KEY_REVIEWER", default="")
 
-# Model names are centralized here (not scattered in llm_client.py) so
-# swapping a provider's model is a one-line config change.
-# "gemini-flash-latest" is Google's own alias for their current recommended
-# flash model -- used instead of pinning a dated model name (e.g.
-# "gemini-2.5-flash") because Google periodically sunsets older model
-# versions for new API keys, which would otherwise silently 404 this
-# pipeline. Pin to a specific version instead if reproducibility across
-# model upgrades matters more than staying unblocked.
-GEMINI_MODEL = env("GEMINI_MODEL", default="gemini-flash-latest")
+# Model name is centralized here (not scattered in llm_client.py) so
+# swapping models is a one-line config change.
 GROQ_MODEL = env("GROQ_MODEL", default="llama-3.1-8b-instant")
 
 # Pipeline tuning

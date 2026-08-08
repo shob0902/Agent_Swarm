@@ -4,7 +4,11 @@
 agent's work happens, then always records status/duration/output on the
 way out -- success or exception -- so a crashed agent is visible in the
 trace instead of silently missing. Callers set `run.output` inside the
-`with` block; the context manager persists it either way.
+`with` block; the context manager persists it either way. `run.provider`
+is also persisted on exit (not just at creation), so a stage that doesn't
+know which provider actually served the call until after it returns --
+e.g. the Coder's round-robin/failover between two providers, see
+services/coder.py -- can just set `run.provider` before the block ends.
 """
 from __future__ import annotations
 
@@ -64,9 +68,9 @@ def track_run(task, agent_type: str, provider: str, input_context: dict, retry_c
         if not run.output:
             run.output = {"error": str(exc)}
         run.duration_ms = int((time.monotonic() - started) * 1000)
-        run.save(update_fields=["status", "output", "duration_ms"])
+        run.save(update_fields=["status", "output", "duration_ms", "provider"])
         raise
     else:
         run.status = "success"
         run.duration_ms = int((time.monotonic() - started) * 1000)
-        run.save(update_fields=["status", "output", "duration_ms"])
+        run.save(update_fields=["status", "output", "duration_ms", "provider"])

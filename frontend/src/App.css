@@ -38,6 +38,12 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Grid items default to min-width:auto, which sizes the track to its
+     widest max-content child -- so one long unbreakable line inside an
+     expanded Agent Trace payload would stretch the whole 1fr column (and
+     with it the page) horizontally. min-width:0 lets the track keep its
+     assigned width and pushes the overflow into the child's own scroller. */
+  min-width: 0;
 }
 
 @media (max-width: 860px) {
