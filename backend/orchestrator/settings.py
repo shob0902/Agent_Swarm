@@ -249,7 +249,15 @@ REST_AUTH = {
     "JWT_AUTH_HTTPONLY": True,  # neither token is readable from JS -- immune to XSS token theft
     "JWT_AUTH_COOKIE": "access_token",
     "JWT_AUTH_REFRESH_COOKIE": "refresh_token",
-    "JWT_AUTH_SAMESITE": "Lax",
+    # Frontend (Netlify) and backend (Render) live on different registrable
+    # domains in production, which makes every authenticated request
+    # cross-site. Browsers only attach SameSite=Lax cookies to top-level
+    # navigations, never to cross-site fetch/XHR, so Lax would silently
+    # drop the auth cookie on every API call once deployed -- login would
+    # appear to succeed and then immediately look logged-out. SameSite=None
+    # requires Secure=True (both tied to DEBUG so local http:// dev, which
+    # can't set Secure cookies, keeps working with Lax).
+    "JWT_AUTH_SAMESITE": "Lax" if DEBUG else "None",
     "JWT_AUTH_SECURE": not DEBUG,  # dev over http:// needs this off; flip on for any real deploy
     "SESSION_LOGIN": False,
     "USER_DETAILS_SERIALIZER": "accounts.serializers.UserSerializer",
