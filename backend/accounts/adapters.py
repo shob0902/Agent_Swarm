@@ -1,18 +1,12 @@
-"""allauth adapter hooks -- the layer where our custom User model's shape
-(email-only, no username, plus name/avatar_url/signup_provider) meets
-allauth's generic signup/login machinery.
-"""
+# allauth adapter hooks that map our email-only User model onto allauth's signup/login flow.
 from __future__ import annotations
-
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib.auth import get_user_model
-
-
 class AccountAdapter(DefaultAccountAdapter):
-    """Email/password signup path (dj_rest_auth's RegisterSerializer)."""
-
+    # Handles the plain email/password signup path.
     def save_user(self, request, user, form, commit=True):
+        # Stamps the provider as "email" and falls back to the email prefix for a missing name.
         user = super().save_user(request, user, form, commit=False)
         user.signup_provider = "email"
         if not user.name:
@@ -20,24 +14,10 @@ class AccountAdapter(DefaultAccountAdapter):
         if commit:
             user.save()
         return user
-
-
 class AutoConnectSocialAccountAdapter(DefaultSocialAccountAdapter):
-    """OAuth (Google/GitHub) signup/login path.
-
-    - `pre_social_login`: if the provider's verified email already belongs
-      to an existing account -- created via email/password or a *different*
-      OAuth provider -- connect this login to that account instead of
-      erroring or creating a duplicate. This is the concrete mechanism for
-      "prevent duplicate accounts when the same email is used across
-      providers."
-    - `populate_user`: fills in name/avatar_url/signup_provider from the
-      provider's profile data for brand-new accounts (the base
-      implementation only knows about first_name/last_name, which our
-      model doesn't have).
-    """
-
+    # Handles the Google/GitHub OAuth path and keeps one account per email.
     def pre_social_login(self, request, sociallogin):
+        # Links this OAuth login to an existing account with the same email instead of duplicating it.
         if sociallogin.is_existing:
             return
         email = sociallogin.account.extra_data.get("email") or sociallogin.user.email
@@ -49,12 +29,11 @@ class AutoConnectSocialAccountAdapter(DefaultSocialAccountAdapter):
         except User.DoesNotExist:
             return
         sociallogin.connect(request, existing)
-
     def populate_user(self, request, sociallogin, data):
+        # Copies name, avatar and provider off the OAuth profile onto a brand-new user.
         user = super().populate_user(request, sociallogin, data)
         extra = sociallogin.account.extra_data
         user.name = data.get("name") or user.name or (user.email.split("@")[0] if user.email else "")
-        # google's provider profile picture key is 'picture', github's is 'avatar_url'
         user.avatar_url = extra.get("picture") or extra.get("avatar_url") or ""
         user.signup_provider = sociallogin.account.provider
         return user

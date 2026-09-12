@@ -1,34 +1,26 @@
+# DRF serializers for reading user details and for email/password registration.
 from dj_rest_auth.registration.serializers import RegisterSerializer as BaseRegisterSerializer
 from rest_framework import serializers
-
 from .models import User
-
-
 class UserSerializer(serializers.ModelSerializer):
-    """Wired in as dj_rest_auth's USER_DETAILS_SERIALIZER -- backs
-    GET/PATCH /api/auth/user/ and is nested into Task responses (see
-    agents.serializers.TaskSerializer) so the frontend never needs a
-    separate lookup to show whose task is whose.
-    """
-
+    # Backs /api/auth/user/ and is nested inside task responses.
     class Meta:
         model = User
         fields = ["id", "email", "name", "avatar_url", "signup_provider", "role", "created_at"]
         read_only_fields = ["id", "email", "signup_provider", "role", "created_at"]
-
-
 class RegisterSerializer(BaseRegisterSerializer):
-    """dj_rest_auth's base RegisterSerializer hardcodes a required
-    `username` field regardless of ACCOUNT_SIGNUP_FIELDS (a quirk of its
-    `_signup_field_required` helper) -- our User model has no username at
-    all, so it's dropped here rather than worked around in settings.
-    Setting a declared field to None in a subclass removes it (standard
-    DRF serializer pattern).
-    """
-
+    # Drops the base class's required username field, which our model doesn't have.
     username = None
-
+    def validate_email(self, email):
+        # Rejects an already-registered email up front so a duplicate signup 400s instead of 500s.
+        email = super().validate_email(email)
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                "A user is already registered with this e-mail address."
+            )
+        return email
     def get_cleaned_data(self):
+        # Returns just the email and password, since there is no username to pass along.
         return {
             "password1": self.validated_data.get("password1", ""),
             "email": self.validated_data.get("email", ""),

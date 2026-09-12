@@ -1,15 +1,10 @@
+// Route guard that waits for the session check, then either renders the page or redirects to login.
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-
-// The auth check is a real network call (see AuthContext -- there's no
-// local signal for "am I logged in?" besides asking the API), so there's a
-// brief window on every hard refresh where we don't yet know. Unlike
-// LoadingScreen (a fixed ~2.8s intro flourish), this has to resolve the
-// instant the request comes back, so it's a plain inline spinner.
 export default function RequireAuth({ children }) {
+  // Shows a small spinner while the session is still being checked.
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
-
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>

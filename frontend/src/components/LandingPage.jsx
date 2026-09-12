@@ -1,18 +1,17 @@
+// Public landing page explaining what the swarm does, with the sign-in and get-started links.
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import './LandingPage.css'
-
 const STEPS = [
   { agent: 'Planner', provider: 'Groq', blurb: 'Breaks your task description into an ordered, concrete implementation plan.' },
   { agent: 'Coder', provider: 'Groq · 2 keys', blurb: 'Rewrites the files the plan calls for, straight into your repo. The highest-volume agent, so it gets two keys and rotates between them least-recently-used first, cooling off any key that hits its rate limit.' },
   { agent: 'Tester', provider: 'sandboxed · no LLM', blurb: 'Runs your real test suite in an isolated, network-disabled container and parses the result.' },
   { agent: 'Reviewer', provider: 'Groq', blurb: 'Gives the final diff a fast sanity check against the plan before marking the task done.' },
 ]
-
 export default function LandingPage({ theme, onToggleTheme }) {
+  // Renders the hero, the four agent cards and the theme toggle, sending the user on to signup or the dashboard.
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
-
   return (
     <div className="landing view-fade-in">
       <header className="landing-header anim-fade-up">
@@ -32,7 +31,6 @@ export default function LandingPage({ theme, onToggleTheme }) {
           </button>
         </div>
       </header>
-
       <section className="landing-hero anim-fade-up" style={{ animationDelay: '0.08s' }}>
         <h1>Autonomous Coding Agent Swarm</h1>
         <p>
@@ -49,7 +47,6 @@ export default function LandingPage({ theme, onToggleTheme }) {
           {isAuthenticated ? 'Open Dashboard →' : 'Get Started →'}
         </button>
       </section>
-
       <section className="landing-steps">
         {STEPS.map((step, i) => (
           <div
@@ -64,7 +61,6 @@ export default function LandingPage({ theme, onToggleTheme }) {
           </div>
         ))}
       </section>
-
       <section className="landing-footnote anim-fade-up" style={{ animationDelay: '0.5s' }}>
         <p>Sandboxed execution (Docker, no network) · Django + Celery orchestrator · bounded retries on test failure</p>
       </section>

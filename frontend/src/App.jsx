@@ -1,3 +1,4 @@
+// Root component: holds the light/dark theme, plays the intro screen once, then sets up routing.
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import './App.css'
@@ -9,26 +10,19 @@ import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import DashboardPage from './pages/DashboardPage'
-
 const THEME_KEY = 'agent-swarm-theme'
-
 export default function App() {
+  // Remembers the chosen theme, gates the app behind the intro, and wires up every route.
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light')
-  // One-time intro flourish gating the whole app on first mount, regardless
-  // of which route the user lands on (deep link, refresh, etc).
   const [introDone, setIntroDone] = useState(false)
-
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
-
   const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'))
-
   if (!introDone) {
     return <LoadingScreen onDone={() => setIntroDone(true)} />
   }
-
   return (
     <AuthProvider>
       <BrowserRouter>

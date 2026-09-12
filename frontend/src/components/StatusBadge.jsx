@@ -1,5 +1,4 @@
-// Color-coded status pill shared by TaskHistorySidebar and AgentTrace.
-// pending -> muted/gray, in-progress stages -> info/blue, done -> success/green, failed -> danger/red.
+// Small coloured status pill used by the task sidebar and the agent trace.
 const COLOR_BY_STATUS = {
   pending: 'var(--text-muted)',
   planning: 'var(--info)',
@@ -11,8 +10,8 @@ const COLOR_BY_STATUS = {
   failed: 'var(--danger)',
   failure: 'var(--danger)',
 }
-
 export default function StatusBadge({ status }) {
+  // Picks the colour for the given status and renders it as a dot plus label.
   const color = COLOR_BY_STATUS[status] || 'var(--text-muted)'
   return (
     <span

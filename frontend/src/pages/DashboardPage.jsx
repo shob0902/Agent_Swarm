@@ -1,3 +1,4 @@
+// Main app screen: the new-task form, the task history sidebar and the live agent trace.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listTasks } from '../api/client'
@@ -5,16 +6,14 @@ import TaskForm from '../components/TaskForm'
 import TaskHistorySidebar from '../components/TaskHistorySidebar'
 import AgentTrace from '../components/AgentTrace'
 import UserMenu from '../components/UserMenu'
-
 const TASK_LIST_POLL_MS = 3000
-
 export default function DashboardPage({ theme, onToggleTheme }) {
+  // Polls the task list against the current search and filter, and tracks which task is selected.
   const [tasks, setTasks] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all') // 'all' | 'favorite' | 'archived'
+  const [filter, setFilter] = useState('all')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-
   useEffect(() => {
     let cancelled = false
     const fetchTasks = async () => {
@@ -26,7 +25,6 @@ export default function DashboardPage({ theme, onToggleTheme }) {
         const data = await listTasks(params)
         if (!cancelled) setTasks(data.results ?? data)
       } catch {
-        // transient poll failure -- next tick retries
       }
     }
     fetchTasks()
@@ -36,25 +34,20 @@ export default function DashboardPage({ theme, onToggleTheme }) {
       clearInterval(interval)
     }
   }, [search, filter])
-
   const handleTaskUpdated = (updated) => {
+    // Swaps in the updated task, dropping it from the list if it no longer matches the active filter.
     setTasks((prev) => {
-      // a favorite/archive toggle can make a task drop out of the current
-      // filter (e.g. archiving while viewing "Recent") -- drop it locally
-      // rather than waiting for the next poll to notice.
       const stillMatches = filter === 'all' || (filter === 'favorite' && updated.is_favorite) || (filter === 'archived' && updated.is_archived)
       if (!stillMatches) return prev.filter((t) => t.id !== updated.id)
       return prev.map((t) => (t.id === updated.id ? updated : t))
     })
   }
-
   const handleTaskDeleted = (id) => {
+    // Removes the deleted task and clears the selection if it was the one showing.
     setTasks((prev) => prev.filter((t) => t.id !== id))
     setSelectedId((prev) => (prev === id ? null : prev))
   }
-
   const selectedTask = tasks.find((t) => t.id === selectedId)
-
   return (
     <div className="app-shell view-fade-in">
       <header className="app-header">
@@ -79,7 +72,6 @@ export default function DashboardPage({ theme, onToggleTheme }) {
         </button>
         <UserMenu />
       </header>
-
       <main className="app-grid">
         <div className="app-column">
           <TaskForm onCreated={(task) => { setTasks((prev) => [task, ...prev]); setSelectedId(task.id) }} />
@@ -97,7 +89,6 @@ export default function DashboardPage({ theme, onToggleTheme }) {
             onCloseMobile={() => setSidebarOpen(false)}
           />
         </div>
-
         <div className="app-column">
           <AgentTrace
             taskId={selectedId}

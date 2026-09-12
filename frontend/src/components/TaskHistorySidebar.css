@@ -1,3 +1,4 @@
+/* Styles for the task history sidebar, including its off-canvas drawer on narrow screens. */
 .history-sidebar {
   padding: 20px;
   display: flex;
@@ -5,18 +6,15 @@
   gap: 12px;
   max-height: 70vh;
 }
-
 .history-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .history-header h2 {
   margin: 0;
   font-size: 16px;
 }
-
 .history-close {
   display: none;
   background: transparent;
@@ -24,17 +22,14 @@
   min-height: 44px;
   min-width: 44px;
 }
-
 .history-search {
   width: 100%;
 }
-
 .history-filters {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
-
 .history-filter-chip {
   padding: 8px 14px;
   font-size: 12px;
@@ -43,19 +38,16 @@
   background: transparent;
   color: var(--text-secondary);
 }
-
 .history-filter-chip-active {
   color: var(--accent-contrast);
   background: var(--accent);
 }
-
 .history-list {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-
 .history-item {
   padding: 12px 14px;
   border-radius: var(--radius-md);
@@ -64,13 +56,11 @@
   flex-direction: column;
   gap: 4px;
 }
-
 .history-item-top {
   display: flex;
   justify-content: flex-end;
   align-items: center;
 }
-
 .history-item-title {
   font-size: 14px;
   color: var(--text-primary);
@@ -79,7 +69,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .history-item-repo {
   font-size: 11px;
   color: var(--text-muted);
@@ -87,13 +76,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .history-item-actions {
   display: flex;
   gap: 4px;
   margin-top: 4px;
 }
-
 .history-action {
   width: 34px;
   height: 34px;
@@ -107,19 +94,15 @@
   background: transparent;
   color: var(--text-secondary);
 }
-
 .history-action-danger:hover:not(:disabled) {
   color: var(--danger);
 }
-
 .history-rename-input {
   width: 100%;
 }
-
 .history-scrim {
   display: none;
 }
-
 @media (max-width: 860px) {
   .history-scrim {
     display: block;
@@ -128,13 +111,11 @@
     background: rgba(0, 0, 0, 0.4);
     z-index: 30;
   }
-
   .history-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-
   .history-sidebar {
     position: fixed;
     top: 0;
@@ -148,7 +129,6 @@
     z-index: 31;
     overflow-y: auto;
   }
-
   .history-sidebar-open {
     transform: translateX(0);
   }

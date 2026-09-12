@@ -1,7 +1,4 @@
-// Client IDs are public by design (they identify the app, not authenticate
-// it) -- safe to ship in the frontend bundle. The matching secrets stay
-// backend-only (see backend/.env.example) and never reach the browser; the
-// actual code-for-token exchange happens server-side in accounts/views.py.
+// Starts the OAuth login redirect for Google and GitHub; only public client IDs live here.
 const PROVIDERS = {
   google: {
     clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
@@ -14,18 +11,15 @@ const PROVIDERS = {
     scope: 'user:email',
   },
 }
-
+// Reports whether a client ID was actually configured for this provider.
 export function isProviderConfigured(provider) {
   return Boolean(PROVIDERS[provider]?.clientId)
 }
-
+// Builds the callback URL the provider should send the user back to.
 export function redirectUriFor(provider) {
   return `${window.location.origin}/auth/callback/${provider}`
 }
-
-// Full-page redirect to the provider's consent screen; it redirects back
-// to redirectUriFor(provider) with `?code=...`, which AuthCallbackPage.jsx
-// picks up and POSTs to the backend.
+// Sends the browser off to the provider's consent screen to begin the login.
 export function startOAuthLogin(provider) {
   const cfg = PROVIDERS[provider]
   if (!cfg?.clientId) return

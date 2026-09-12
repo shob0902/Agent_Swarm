@@ -1,14 +1,13 @@
+// Sidebar listing past tasks with search, filters and the rename, favorite, archive and delete actions.
 import { useState } from 'react'
 import { archiveTask, deleteTask, favoriteTask, renameTask } from '../api/client'
 import StatusBadge from './StatusBadge'
 import './TaskHistorySidebar.css'
-
 const FILTERS = [
   { key: 'all', label: 'Recent' },
   { key: 'favorite', label: 'Favorites' },
   { key: 'archived', label: 'Archived' },
 ]
-
 export default function TaskHistorySidebar({
   tasks,
   selectedId,
@@ -22,16 +21,17 @@ export default function TaskHistorySidebar({
   mobileOpen,
   onCloseMobile,
 }) {
+  // Keeps track of which row is being renamed or is mid-request, and renders the list.
   const [editingId, setEditingId] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [busyId, setBusyId] = useState(null)
-
   const startRename = (task) => {
+    // Puts a row into edit mode, seeded with its current title.
     setEditingId(task.id)
     setEditValue(task.title || task.description.slice(0, 60))
   }
-
   const commitRename = async (task) => {
+    // Saves the edited title, quietly leaving the old one in place if the save fails.
     setEditingId(null)
     const title = editValue.trim()
     if (!title || title === (task.title || '')) return
@@ -39,11 +39,10 @@ export default function TaskHistorySidebar({
       const updated = await renameTask(task.id, title)
       onTaskUpdated(updated)
     } catch {
-      // rename failure isn't destructive -- the task just keeps its old title
     }
   }
-
   const toggleFavorite = async (task, e) => {
+    // Flips the task's favorite flag on the server.
     e.stopPropagation()
     setBusyId(task.id)
     try {
@@ -52,8 +51,8 @@ export default function TaskHistorySidebar({
       setBusyId(null)
     }
   }
-
   const toggleArchive = async (task, e) => {
+    // Flips the task's archived flag on the server.
     e.stopPropagation()
     setBusyId(task.id)
     try {
@@ -62,8 +61,8 @@ export default function TaskHistorySidebar({
       setBusyId(null)
     }
   }
-
   const remove = async (task, e) => {
+    // Asks for confirmation, then deletes the task for good.
     e.stopPropagation()
     if (!window.confirm(`Delete "${task.title || task.display_title}"? This can't be undone.`)) return
     setBusyId(task.id)
@@ -74,7 +73,6 @@ export default function TaskHistorySidebar({
       setBusyId(null)
     }
   }
-
   return (
     <>
       {mobileOpen && <div className="history-scrim" onClick={onCloseMobile} />}
@@ -83,7 +81,6 @@ export default function TaskHistorySidebar({
           <h2>Task History</h2>
           <button type="button" className="neu-pressable history-close" onClick={onCloseMobile} aria-label="Close history">✕</button>
         </div>
-
         <input
           type="search"
           placeholder="Search tasks…"
@@ -91,7 +88,6 @@ export default function TaskHistorySidebar({
           onChange={(e) => onSearchChange(e.target.value)}
           className="history-search"
         />
-
         <div className="history-filters">
           {FILTERS.map((f) => (
             <button
@@ -104,7 +100,6 @@ export default function TaskHistorySidebar({
             </button>
           ))}
         </div>
-
         <div className="history-list">
           {tasks.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No tasks yet — submit one above.</p>}
           {tasks.map((task, i) => (
@@ -122,7 +117,6 @@ export default function TaskHistorySidebar({
               <div className="history-item-top">
                 <StatusBadge status={task.status} />
               </div>
-
               {editingId === task.id ? (
                 <input
                   autoFocus
@@ -139,9 +133,7 @@ export default function TaskHistorySidebar({
               ) : (
                 <div className="history-item-title">{task.title || task.display_title}</div>
               )}
-
               <div className="history-item-repo">{task.github_url}</div>
-
               <div className="history-item-actions">
                 <button type="button" className="neu-pressable history-action" onClick={(e) => toggleFavorite(task, e)} title={task.is_favorite ? 'Unfavorite' : 'Favorite'}>
                   {task.is_favorite ? '★' : '☆'}

@@ -1,23 +1,8 @@
+# Database models for a task and the individual agent runs that make up its pipeline.
 from django.conf import settings
 from django.db import models
-
-
 class Task(models.Model):
-    """A single unit of work handed to the agent swarm.
-
-    One `github_url` per task (v1 has no multi-repo support). The pipeline
-    shallow-clones this public GitHub repo into a throwaway temp directory
-    at run time (see services/repo.py) and bind-mounts *that* into the
-    sandbox container -- nothing here ever touches a path on the machine
-    running Django/Celery directly, so this works for anyone's repo, not
-    just one physically checked out on the server's disk.
-
-    Ownership: every Task belongs to exactly one `user` -- this is the
-    entire multi-tenant boundary for the app (AgentRun has no `user_id` of
-    its own; it's isolated transitively through `AgentRun.task.user`, see
-    `agents/permissions.py` and `agents/views.py`).
-    """
-
+    # One unit of work for the agent swarm, owned by exactly one user and tied to one GitHub repo.
     STATUS_CHOICES = [
         ("pending", "pending"),
         ("planning", "planning"),
@@ -27,7 +12,6 @@ class Task(models.Model):
         ("done", "done"),
         ("failed", "failed"),
     ]
-
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="tasks", on_delete=models.CASCADE)
     title = models.CharField(max_length=200, blank=True, help_text="User-editable; falls back to a truncated description when blank")
     description = models.TextField(help_text="e.g. 'Add input validation to the /signup endpoint'")
@@ -37,26 +21,17 @@ class Task(models.Model):
     is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ["-created_at"]
-
     def __str__(self):
+        # Short label used in the admin and in logs.
         return f"Task #{self.pk} [{self.status}] {self.description[:60]}"
-
     @property
     def display_title(self) -> str:
+        # Uses the user's title if set, otherwise a truncated description.
         return self.title or (self.description[:60] + ("…" if len(self.description) > 60 else ""))
-
-
 class AgentRun(models.Model):
-    """One audit-trail row per agent invocation within a task's pipeline.
-
-    Created with status='pending' *before* the LLM/sandbox call, then
-    updated afterwards -- including on exceptions -- so a crashed agent is
-    always visible in the trace, never silently missing.
-    """
-
+    # Audit-trail row written for every agent invocation, created before the call and updated after.
     AGENT_TYPE_CHOICES = [
         ("planner", "planner"),
         ("coder", "coder"),
@@ -65,12 +40,7 @@ class AgentRun(models.Model):
     ]
     PROVIDER_CHOICES = [
         ("groq", "groq"),
-        # Deterministic stages (the Tester) call no model at all.
         ("none", "none"),
-        # Legacy: the pipeline used to split Planner/Coder across Gemini and
-        # is now Groq-only (see orchestrator/settings.py for why). Kept as a
-        # valid choice purely so AgentRun rows written before the switch
-        # still render with a label in /admin instead of as a raw value.
         ("gemini", "gemini"),
     ]
     STATUS_CHOICES = [
@@ -78,7 +48,6 @@ class AgentRun(models.Model):
         ("success", "success"),
         ("failure", "failure"),
     ]
-
     task = models.ForeignKey(Task, related_name="runs", on_delete=models.CASCADE)
     agent_type = models.CharField(max_length=20, choices=AGENT_TYPE_CHOICES)
     provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, blank=True, default="none")
@@ -88,9 +57,8 @@ class AgentRun(models.Model):
     retry_count = models.IntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     duration_ms = models.IntegerField(null=True, blank=True)
-
     class Meta:
         ordering = ["started_at"]
-
     def __str__(self):
+        # Short label used in the admin and in logs.
         return f"{self.agent_type} run #{self.pk} for Task #{self.task_id} [{self.status}]"

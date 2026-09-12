@@ -1,8 +1,4 @@
-/* Neumorphic (soft UI) theme -- raised/inset elements defined by dual
-   shadows rather than borders or flat fills. Light and dark are just two
-   sets of the same five tokens; every component's shadows/gradients are
-   built off these variables so no component CSS needs to change between
-   modes -- only the tokens do. Toggle via [data-theme] on <html>. */
+/* Neumorphic theme tokens, the shared raised/inset primitives, and the entrance animations. */
 :root {
   --base: #EDEDED;
   --shadow-dark: #C8C8C8;
@@ -12,18 +8,15 @@
   --text-primary: #2B2B2B;
   --text-secondary: #5C5C5C;
   --text-muted: #8A8A8A;
-
   --success: #5FAE85;
   --danger: #B8443D;
   --warning: #D6B15C;
   --info: #6E9FD6;
-
   --radius-lg: 20px;
   --radius-md: 14px;
   --radius-sm: 10px;
   --ease-cushion: cubic-bezier(0.22, 1, 0.36, 1);
 }
-
 [data-theme="dark"] {
   --base: #1A1A1A;
   --shadow-dark: #0D0D0D;
@@ -33,21 +26,17 @@
   --text-primary: #EEEEEE;
   --text-secondary: #AAAAAA;
   --text-muted: #777777;
-
   --success: #6FBF98;
   --danger: #E0665F;
   --warning: #E0C177;
   --info: #82AEE0;
 }
-
 * {
   box-sizing: border-box;
 }
-
 html, body, #root {
   height: 100%;
 }
-
 body {
   margin: 0;
   background: var(--base);
@@ -55,37 +44,29 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   transition: background-color 0.3s var(--ease-cushion), color 0.3s var(--ease-cushion);
 }
-
 h1, h2, h3, h4 {
   color: var(--text-primary);
   font-weight: 600;
 }
-
 a {
   color: var(--accent);
 }
-
-/* --- Neumorphic primitives ------------------------------------------- */
-
 .neu-raised {
   background: var(--base);
   border-radius: var(--radius-md);
   box-shadow: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light);
   transition: box-shadow 0.2s var(--ease-cushion);
 }
-
 .neu-flat {
   background: var(--base);
   border-radius: var(--radius-md);
   box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light);
 }
-
 .neu-inset {
   background: var(--base);
   border-radius: var(--radius-md);
   box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
 }
-
 .neu-pressable {
   cursor: pointer;
   border: none;
@@ -94,22 +75,18 @@ a {
   text-decoration: none;
   transition: transform 0.2s var(--ease-cushion), box-shadow 0.2s var(--ease-cushion);
 }
-
 .neu-pressable:hover:not(:disabled) {
   transform: translateY(-2px);
 }
-
 .neu-pressable:active {
   transform: translateY(0);
   box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
 }
-
 .neu-pressable:disabled {
   cursor: not-allowed;
   color: var(--text-muted);
   opacity: 0.7;
 }
-
 input, textarea, select {
   font: inherit;
   color: var(--text-primary);
@@ -120,25 +97,19 @@ input, textarea, select {
   padding: 10px 14px;
   outline: none;
 }
-
 input::placeholder, textarea::placeholder {
   color: var(--text-muted);
 }
-
 input:focus, textarea:focus, select:focus {
   box-shadow: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light), 0 0 0 2px var(--accent);
 }
-
 button {
   font: inherit;
 }
-
-/* pulsing loader used while an agent stage is running */
 @keyframes neu-pulse {
   0%, 100% { opacity: 0.4; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1); }
 }
-
 .neu-pulse-dot {
   width: 10px;
   height: 10px;
@@ -146,34 +117,23 @@ button {
   background: var(--accent);
   animation: neu-pulse 1.2s ease-in-out infinite;
 }
-
-/* --- Shared entrance animations --------------------------------------
-   Applied via className + an inline `animationDelay` for staggering
-   (e.g. list items, timeline entries, landing sections). `both` fill mode
-   keeps the element invisible/offset until its delay elapses, so a whole
-   staggered group doesn't flash unstyled before animating in. */
 @keyframes anim-fade-up {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes anim-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
 .anim-fade-up {
   animation: anim-fade-up 0.45s var(--ease-cushion) both;
 }
-
 .anim-fade-in {
   animation: anim-fade-in 0.4s var(--ease-cushion) both;
 }
-
 .view-fade-in {
   animation: anim-fade-up 0.35s var(--ease-cushion) both;
 }
-
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

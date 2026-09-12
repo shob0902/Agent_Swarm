@@ -1,17 +1,9 @@
-# Generated for the local-path -> GitHub-URL switch (see services/repo.py).
-# repo_path values were absolute filesystem paths on the old server host --
-# not meaningful as URLs -- so this is a straight remove+add rather than a
-# lossy rename.
-
+# Replaces the old local repo_path field on Task with a github_url.
 from django.db import migrations, models
-
-
 class Migration(migrations.Migration):
-
     dependencies = [
         ('agents', '0001_initial'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='task',

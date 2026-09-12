@@ -1,13 +1,11 @@
+// Account creation page offering both the OAuth providers and an email/password form.
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import OAuthButtons from '../components/OAuthButtons'
 import './AuthPages.css'
-
-// DRF field-error responses look like {email: ["..."], password1: ["..."]}
-// -- flatten to the first message across all fields for a single-line
-// display rather than a per-field breakdown.
 function firstError(data) {
+  // Flattens a DRF field-error response down to a single message to show.
   if (!data) return null
   for (const key of ['non_field_errors', 'email', 'password1', 'password2', 'detail']) {
     if (data[key]?.[0]) return data[key][0]
@@ -15,8 +13,8 @@ function firstError(data) {
   }
   return 'Could not create an account'
 }
-
 export default function SignupPage() {
+  // Holds the three form fields and drops the user on the dashboard once the account is made.
   const { signupWithEmail } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -24,8 +22,8 @@ export default function SignupPage() {
   const [password2, setPassword2] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
-
   const handleSubmit = async (e) => {
+    // Submits the signup and surfaces the first validation error if it is rejected.
     e.preventDefault()
     setSubmitting(true)
     setError(null)
@@ -38,16 +36,13 @@ export default function SignupPage() {
       setSubmitting(false)
     }
   }
-
   return (
     <div className="auth-shell view-fade-in">
       <div className="neu-raised auth-card anim-fade-up">
         <span className="auth-kicker">Agent Swarm</span>
         <h1>Create your account</h1>
-
         <OAuthButtons />
         <div className="auth-divider">or</div>
-
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="auth-field">
             Email
@@ -66,7 +61,6 @@ export default function SignupPage() {
             {submitting ? 'Creating account…' : 'Sign up'}
           </button>
         </form>
-
         <div className="auth-switch">
           Already have an account? <Link to="/login">Sign in</Link>
         </div>

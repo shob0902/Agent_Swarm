@@ -1,10 +1,11 @@
+// Sign-in page offering both the OAuth providers and an email/password form.
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import OAuthButtons from '../components/OAuthButtons'
 import './AuthPages.css'
-
 export default function LoginPage() {
+  // Holds the form state and sends the user on to wherever they were originally headed.
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -12,10 +13,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
-
   const redirectTo = location.state?.from?.pathname || '/dashboard'
-
   const handleSubmit = async (e) => {
+    // Attempts the login and shows the server's message if the credentials are rejected.
     e.preventDefault()
     setSubmitting(true)
     setError(null)
@@ -28,16 +28,13 @@ export default function LoginPage() {
       setSubmitting(false)
     }
   }
-
   return (
     <div className="auth-shell view-fade-in">
       <div className="neu-raised auth-card anim-fade-up">
         <span className="auth-kicker">Agent Swarm</span>
         <h1>Sign in</h1>
-
         <OAuthButtons />
         <div className="auth-divider">or</div>
-
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="auth-field">
             Email
@@ -52,7 +49,6 @@ export default function LoginPage() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
         <div className="auth-switch">
           No account yet? <Link to="/signup">Sign up</Link>
         </div>

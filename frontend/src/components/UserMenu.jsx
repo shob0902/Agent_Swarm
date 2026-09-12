@@ -1,18 +1,18 @@
+// Avatar button in the header that opens a dropdown with the account details and logout.
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-
 function initials(user) {
+  // Takes the first two letters of the name, or the email if no name is set.
   const source = user.name || user.email
   return source.slice(0, 2).toUpperCase()
 }
-
 export default function UserMenu() {
+  // Tracks whether the dropdown is open and closes it on any click outside.
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
-
   useEffect(() => {
     const onClickOutside = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false)
@@ -20,15 +20,13 @@ export default function UserMenu() {
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [])
-
   if (!user) return null
-
   const handleLogout = async () => {
+    // Closes the menu, ends the session and sends the user back to the login page.
     setOpen(false)
     await logout()
     navigate('/login', { replace: true })
   }
-
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
@@ -43,7 +41,6 @@ export default function UserMenu() {
           {user.name || user.email}
         </span>
       </button>
-
       {open && (
         <div
           className="neu-raised anim-fade-up"
@@ -69,8 +66,8 @@ export default function UserMenu() {
     </div>
   )
 }
-
 function Avatar({ user, size = 28 }) {
+  // Shows the user's profile picture, falling back to a circle with their initials.
   if (user.avatar_url) {
     return <img src={user.avatar_url} alt="" width={size} height={size} style={{ borderRadius: '50%', flexShrink: 0 }} />
   }

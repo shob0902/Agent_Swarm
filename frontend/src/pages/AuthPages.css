@@ -1,6 +1,4 @@
-/* Shared shell for LoginPage/SignupPage/AuthCallbackPage -- mobile-first:
-   the single-column centered-card layout below IS the phone layout, the
-   media query only widens breathing room for larger screens. */
+/* Shared centered-card layout for the login, signup and OAuth callback pages. */
 .auth-shell {
   min-height: 100%;
   display: flex;
@@ -8,7 +6,6 @@
   justify-content: center;
   padding: 24px 16px;
 }
-
 .auth-card {
   width: 100%;
   max-width: 380px;
@@ -17,7 +14,6 @@
   flex-direction: column;
   gap: 18px;
 }
-
 .auth-kicker {
   font-size: 12px;
   font-weight: 600;
@@ -26,19 +22,16 @@
   color: var(--accent);
   text-align: center;
 }
-
 .auth-card h1 {
   margin: 0;
   font-size: 22px;
   text-align: center;
 }
-
 .auth-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-
 .auth-field {
   display: flex;
   flex-direction: column;
@@ -46,20 +39,16 @@
   color: var(--text-secondary);
   font-size: 13px;
 }
-
-/* min 44px touch target on every tappable control in the auth flow */
 .auth-form input,
 .auth-submit,
 .auth-card .neu-pressable {
   min-height: 44px;
 }
-
 .auth-submit {
   padding: 10px 20px;
   color: var(--accent);
   font-weight: 600;
 }
-
 .auth-divider {
   display: flex;
   align-items: center;
@@ -67,7 +56,6 @@
   color: var(--text-muted);
   font-size: 12px;
 }
-
 .auth-divider::before,
 .auth-divider::after {
   content: '';
@@ -75,25 +63,21 @@
   height: 1px;
   background: var(--shadow-dark);
 }
-
 .auth-error {
   color: var(--danger);
   font-size: 13px;
   text-align: center;
 }
-
 .auth-switch {
   text-align: center;
   font-size: 13px;
   color: var(--text-secondary);
 }
-
 .auth-back {
   align-self: center;
   color: var(--text-muted);
   font-size: 13px;
 }
-
 @media (min-width: 480px) {
   .auth-card {
     padding: 36px 32px;

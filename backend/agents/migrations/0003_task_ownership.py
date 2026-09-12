@@ -1,21 +1,12 @@
-# Adds per-user ownership + task-history fields (rename/favorite/archive).
-# `user` is intentionally non-nullable with no default: this repo's dev
-# db.sqlite3 only ever held throwaway demo tasks, so the expected path is
-# `rm backend/db.sqlite3 && manage.py migrate` rather than backfilling a
-# placeholder owner for orphaned rows (see the auth plan's migration note).
-
+# Adds the owner link plus the rename, favorite and archive fields to Task.
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-
-
 class Migration(migrations.Migration):
-
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ('agents', '0002_task_github_url'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='task',
