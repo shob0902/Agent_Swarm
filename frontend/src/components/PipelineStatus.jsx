@@ -114,7 +114,7 @@ export default function PipelineStatus({ task, runs, onTaskChanged, onRetried })
           <strong>Failed{task.final_result?.stage ? ` at ${AGENT_NAME[task.final_result.stage] || task.final_result.stage}` : ''}:</strong> {task.error_message}
         </div>
       )}
-      {task.status === 'failed' && task.retry && (
+      {task.retry && (
         <div className="pipeline-retry">
           <button type="button" className="neu-flat neu-pressable pipeline-retry-primary" onClick={() => retry(false)} disabled={retrying}>
             {retrying ? 'Restarting…' : task.retry.stage ? `↻ Retry from ${task.retry.label}` : '↻ Retry'}
@@ -135,6 +135,7 @@ export default function PipelineStatus({ task, runs, onTaskChanged, onRetried })
       {stale && (
         <div className="neu-inset pipeline-error" style={{ color: 'var(--warning)' }}>
           Still queued after 5 minutes. Check the GitHub Actions tab of the Agent Swarm repository — the runner may be waiting or misconfigured.
+          {task.retry ? ' It looks abandoned, so you can retry it below.' : ' A Retry option appears after 10 minutes if the runner never reports back.'}
         </div>
       )}
       <dl className="pipeline-facts">

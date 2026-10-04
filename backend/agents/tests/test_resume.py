@@ -62,7 +62,7 @@ class HistoryCheckpointTests(TestCase):
         self.assertEqual(cp["changes"], {"app.py": "v2\n", "new.py": "X = 1\n"})
         self.assertEqual(cp["changed_files"], [{"path": "app.py", "change": "modified"}, {"path": "new.py", "change": "added"}])
         self.assertTrue(cp["test"]["passed"])
-        self.assertEqual(retry_plan(task), {"stage": "github", "label": "Pull Request"})
+        self.assertEqual(retry_plan(task), {"stage": "github", "label": "Pull Request", "stale": False})
 @override_settings(PIPELINE_EXECUTOR="local")
 class RetryEndpointTests(TestCase):
     # POST /api/tasks/<id>/retry/
@@ -86,7 +86,7 @@ class RetryEndpointTests(TestCase):
     def test_detail_offers_retry_from_failed_stage(self):
         # The UI learns where Retry would resume.
         data = self.client.get(f"/api/tasks/{self.task.id}/").json()
-        self.assertEqual(data["retry"], {"stage": "github", "label": "Pull Request"})
+        self.assertEqual(data["retry"], {"stage": "github", "label": "Pull Request", "stale": False})
         self.assertNotIn("checkpoint", data)
     def test_retry_resumes_and_keeps_earlier_results(self):
         # Only the PR step reruns; plan, tests and review are kept; the failure is cleared and the run dispatched.
@@ -224,3 +224,40 @@ class ResumedPipelineTests(SimpleTestCase):
             result = orchestrator.execute_task(reporter)
         self.assertEqual(result["stage"], "github")
         self.assertEqual(resume_point(result["stage"], reporter.task["checkpoint"]), "github")
+@override_settings(PIPELINE_EXECUTOR="local")
+class StaleTaskRetryTests(TestCase):
+    # A task whose runner died before reporting anything must not be stuck "queued" forever.
+    def setUp(self):
+        # A task dispatched long ago that never heard back from its runner.
+        from datetime import timedelta
+        from django.utils import timezone
+        self.user = get_user_model().objects.create_user(email="s@example.com", password="pw-123456789")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.task = Task.objects.create(user=self.user, description="d", github_url="https://github.com/acme/app", status="queued", executor="github_actions")
+        Task.objects.filter(pk=self.task.pk).update(dispatched_at=timezone.now() - timedelta(minutes=30))
+        self.task.refresh_from_db()
+    def test_abandoned_queued_task_is_retryable_from_scratch(self):
+        # No checkpoint yet, so it restarts from the beginning; it's flagged as stale for the UI.
+        self.assertEqual(retry_plan(self.task), {"stage": "", "label": "the beginning", "stale": True})
+        with mock.patch("agents.pipeline.dispatch.subprocess.Popen") as popen:
+            response = self.client.post(f"/api/tasks/{self.task.id}/retry/")
+        self.assertEqual(response.status_code, 200, response.content)
+        popen.assert_called_once()
+        self.task.refresh_from_db()
+        self.assertEqual((self.task.status, self.task.attempt), ("queued", 2))
+    def test_abandoned_task_with_checkpoint_resumes_furthest_point(self):
+        # A runner that died mid-way resumes where its checkpoint allows.
+        self.task.checkpoint = FULL_CP
+        self.task.save()
+        self.assertEqual(retry_plan(self.task)["stage"], "github")
+    def test_recently_dispatched_task_is_not_retryable(self):
+        # A runner may simply still be starting up; don't offer a duplicate run.
+        from django.utils import timezone
+        Task.objects.filter(pk=self.task.pk).update(dispatched_at=timezone.now())
+        self.task.refresh_from_db()
+        self.assertIsNone(retry_plan(self.task))
+        with mock.patch("agents.pipeline.dispatch.subprocess.Popen") as popen:
+            response = self.client.post(f"/api/tasks/{self.task.id}/retry/")
+        self.assertEqual(response.status_code, 409)
+        popen.assert_not_called()

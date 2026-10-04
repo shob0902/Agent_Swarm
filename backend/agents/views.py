@@ -11,7 +11,7 @@ from .github.repo_url import parse_github_url
 from .models import AgentRun, Task
 from .permissions import IsOwner
 from .pipeline.dispatch import DispatchError, dispatch_task
-from .pipeline.resume import STAGE_ORDER, effective_checkpoint, resume_point
+from .pipeline.resume import STAGE_ORDER, effective_checkpoint, is_retryable, resume_point
 from .serializers import AgentRunSerializer, TaskDetailSerializer, TaskSerializer
 logger = logging.getLogger(__name__)
 class TaskViewSet(
@@ -59,11 +59,13 @@ class TaskViewSet(
         # Re-runs a failed task from the stage that failed (or from scratch with {"from_start": true}),
         # reusing everything earlier stages produced instead of asking for the repo and request again.
         task = self.get_object()
-        if task.status != "failed":
-            return Response({"detail": "Only a failed task can be retried."}, status=409)
+        if not is_retryable(task):
+            return Response({"detail": "Only a failed task, or one whose runner stopped reporting, can be retried."}, status=409)
+        # A stale task's runner died without recording anything; treat it as a runner failure.
+        failed_stage = (task.final_result or {}).get("stage", "") if task.status == "failed" else "runner"
         from_start = str(request.data.get("from_start", "")).lower() in ("1", "true", "yes")
         checkpoint = {} if from_start else effective_checkpoint(task)
-        stage = "" if from_start else resume_point((task.final_result or {}).get("stage", ""), checkpoint)
+        stage = "" if from_start else resume_point(failed_stage, checkpoint)
         _reset_for_retry(task, stage, checkpoint)
         task.save()
         try:

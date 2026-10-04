@@ -1,5 +1,7 @@
 # Decides where a failed task can resume, from its checkpoint (or, for older tasks, from the recorded agent runs).
 from __future__ import annotations
+from datetime import timedelta
+from django.utils import timezone
 # Stages a run can resume at, in pipeline order. "" means a full run from the beginning.
 STAGE_ORDER = ("planner", "coder", "tester", "reviewer", "github")
 STAGE_LABEL = {
@@ -81,9 +83,26 @@ def checkpoint_from_history(task) -> dict:
 def effective_checkpoint(task) -> dict:
     # The stored checkpoint, or one rebuilt from history for older tasks.
     return dict(task.checkpoint) if task.checkpoint else checkpoint_from_history(task)
+# A run that never checks in is abandoned: the runner died before it could report (bad secret, cancelled job...).
+STALE_QUEUED_AFTER = timedelta(minutes=10)
+# The workflow's job timeout is 45 minutes; no progress for longer than that means nobody is running the task.
+STALE_RUNNING_AFTER = timedelta(minutes=50)
+def is_stale(task, now=None) -> bool:
+    # True for a task stuck in an active state with no runner activity for too long.
+    now = now or timezone.now()
+    if task.status == "queued":
+        since = task.dispatched_at or task.updated_at
+        return bool(since) and now - since > STALE_QUEUED_AFTER
+    if task.status in task.ACTIVE_STATUSES:
+        return bool(task.updated_at) and now - task.updated_at > STALE_RUNNING_AFTER
+    return False
+def is_retryable(task) -> bool:
+    # Failed tasks, and tasks whose runner evidently died, can be retried.
+    return task.status == "failed" or is_stale(task)
 def retry_plan(task) -> dict | None:
-    # For a failed task: {"stage", "label"} describing where Retry would restart; None if the task isn't retryable.
-    if task.status != "failed":
+    # For a retryable task: {"stage", "label", "stale"} describing where Retry would restart; None otherwise.
+    if not is_retryable(task):
         return None
-    stage = resume_point((task.final_result or {}).get("stage", ""), effective_checkpoint(task))
-    return {"stage": stage, "label": STAGE_LABEL[stage]}
+    failed_stage = (task.final_result or {}).get("stage", "") if task.status == "failed" else "runner"
+    stage = resume_point(failed_stage, effective_checkpoint(task))
+    return {"stage": stage, "label": STAGE_LABEL[stage], "stale": task.status != "failed"}
