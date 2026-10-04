@@ -1,0 +1,57 @@
+/* Neumorphic light/dark switch: inset track, sliding raised knob, icon of the active theme highlighted. */
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 72px;
+  height: 38px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--base);
+  box-shadow: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.theme-toggle-knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--base);
+  box-shadow: 3px 3px 6px var(--shadow-dark), -2px -2px 5px var(--shadow-light);
+  transition: transform 0.3s var(--ease-cushion);
+}
+.theme-toggle-dark .theme-toggle-knob {
+  transform: translateX(34px);
+}
+.theme-toggle-icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.3s var(--ease-cushion), opacity 0.3s var(--ease-cushion);
+  opacity: 0.6;
+}
+/* The icon sitting under the knob is the active theme: full colour. */
+.theme-toggle:not(.theme-toggle-dark) .theme-toggle-sun,
+.theme-toggle-dark .theme-toggle-moon {
+  color: var(--accent);
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle-knob,
+  .theme-toggle-icon {
+    transition: none;
+  }
+}

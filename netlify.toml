@@ -1,0 +1,19 @@
+# Netlify build for the React frontend (the Django API is deployed separately on Render).
+# Set VITE_API_BASE_URL in Netlify -> Site configuration -> Environment variables, e.g.
+#   https://agent-swarm-api-4r3s.onrender.com/api
+# It is read at build time, so redeploy after changing it.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 8 needs Node 20.19+ / 22.12+.
+  NODE_VERSION = "22"
+
+# Single-page app: let React Router handle /dashboard, /login and the OAuth callbacks
+# (/auth/callback/google, /auth/callback/github) instead of returning a 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

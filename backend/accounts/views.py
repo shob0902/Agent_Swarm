@@ -1,7 +1,6 @@
 # Auth endpoints: email signup, the public OAuth provider config, and the server-side half of the Google and GitHub OAuth exchange.
 from __future__ import annotations
 from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.app_settings import api_settings as rest_auth_settings
 from dj_rest_auth.jwt_auth import set_jwt_cookies
@@ -45,8 +44,8 @@ class _ProviderLogin(SocialLoginView):
         self.callback_url = redirect_uri
         return super().post(request, *args, **kwargs)
 class GoogleLogin(_ProviderLogin):
-    # Trades a Google authorization code for a session.
-    adapter_class = GoogleOAuth2Adapter
+    # Trades a Google authorization code for a session, tolerating small server/Google clock differences.
+    adapter_class = oauth.ClockSkewTolerantGoogleOAuth2Adapter
     provider = "google"
 class GitHubLogin(_ProviderLogin):
     # Trades a GitHub authorization code for a session.

@@ -1,6 +1,7 @@
 // Public landing page explaining what the swarm does, with the sign-in and get-started links.
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import ThemeToggle from './ThemeToggle'
 import './LandingPage.css'
 const STEPS = [
   { agent: 'Analyzer', provider: 'deterministic · no LLM', blurb: 'Clones the repository and detects its stack — Python, Node.js or TypeScript — plus how it installs, builds, tests and lints.' },
@@ -24,13 +25,7 @@ export default function LandingPage({ theme, onToggleTheme }) {
               Sign in
             </Link>
           )}
-          <button
-            className="neu-flat neu-pressable"
-            onClick={onToggleTheme}
-            style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
-          >
-            {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-          </button>
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
       </header>
       <section className="landing-hero anim-fade-up" style={{ animationDelay: '0.08s' }}>

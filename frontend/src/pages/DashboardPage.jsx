@@ -6,6 +6,7 @@ import TaskForm from '../components/TaskForm'
 import TaskHistorySidebar from '../components/TaskHistorySidebar'
 import AgentTrace from '../components/AgentTrace'
 import UserMenu from '../components/UserMenu'
+import ThemeToggle from '../components/ThemeToggle'
 const TASK_LIST_POLL_MS = 3000
 export default function DashboardPage({ theme, onToggleTheme }) {
   // Polls the task list against the current search and filter; the selected task lives in ?task= so a refresh keeps it.
@@ -78,13 +79,7 @@ export default function DashboardPage({ theme, onToggleTheme }) {
           ← Home
         </Link>
         <div style={{ flex: 1 }} />
-        <button
-          className="neu-flat neu-pressable"
-          onClick={onToggleTheme}
-          style={{ padding: '8px 16px', color: 'var(--text-secondary)' }}
-        >
-          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-        </button>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <UserMenu />
       </header>
       <main className="app-grid">

@@ -10,7 +10,8 @@ function serverMessage(err) {
   const data = err?.response?.data
   if (!data) return null
   if (typeof data === 'string') return data.length < 300 ? data : null
-  return data.detail || data.non_field_errors?.[0] || Object.values(data).flat().find((v) => typeof v === 'string') || null
+  const detail = Array.isArray(data.detail) ? data.detail[0] : data.detail
+  return detail || data.non_field_errors?.[0] || Object.values(data).flat().find((v) => typeof v === 'string') || null
 }
 export default function AuthCallbackPage() {
   // Exchanges the single-use code exactly once, then either lands where the user started or shows the error.

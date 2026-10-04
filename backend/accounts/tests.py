@@ -147,3 +147,45 @@ class ProvidersEndpointTests(TestCase):
         self.assertFalse(data["google"]["enabled"])
         self.assertEqual(data["google"]["client_id"], "")
         self.assertFalse(data["github"]["enabled"])
+@override_settings(**OAUTH_SETTINGS)
+class GoogleIdTokenTests(TestCase):
+    # Runs Google's real id_token verification (with a test signing key) instead of mocking complete_login.
+    KEY = "test-signing-key-that-is-long-enough-for-hs256"
+    def _login_with_id_token(self, **claim_overrides):
+        # Exchanges a code whose token response carries an id_token with the given claims.
+        import time
+        import jwt
+        now = int(time.time())
+        claims = {
+            "iss": "https://accounts.google.com", "aud": "google-id", "sub": "g-42",
+            "email": "skew@example.com", "email_verified": True, "name": "Skew", "picture": "https://img.example/s.png",
+            "iat": now, "exp": now + 3600,
+        }
+        claims.update(claim_overrides)
+        id_token = jwt.encode(claims, self.KEY, algorithm="HS256")
+        with mock.patch.object(OAuth2Client, "get_access_token", return_value={"access_token": "at", "id_token": id_token}), \
+                mock.patch("accounts.oauth.jwtkit.fetch_key", return_value=("HS256", self.KEY)):
+            return APIClient().post("/api/auth/google/", {"code": "c", "redirect_uri": "http://localhost:5173/auth/callback/google"}, format="json")
+    def test_token_issued_slightly_in_the_future_is_accepted(self):
+        # A server clock a few seconds behind Google (the Windows dev case) must not break sign-in.
+        import time
+        response = self._login_with_id_token(iat=int(time.time()) + 5)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(get_user_model().objects.filter(email="skew@example.com", signup_provider="google").exists())
+    def test_grossly_future_token_is_a_readable_400(self):
+        # Beyond the leeway it's rejected -- as a 400 that names the reason, not a 500.
+        import time
+        response = self._login_with_id_token(iat=int(time.time()) + 3600)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not yet valid", str(response.json()))
+    def test_wrong_audience_rejected(self):
+        # A token minted for a different Google client never signs anyone in.
+        response = self._login_with_id_token(aud="someone-elses-client-id")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("audience", str(response.json()).lower())
+        self.assertFalse(get_user_model().objects.exists())
+    def test_expired_token_rejected(self):
+        # Expiry is still enforced (with the same small leeway).
+        import time
+        response = self._login_with_id_token(iat=int(time.time()) - 7200, exp=int(time.time()) - 3600)
+        self.assertEqual(response.status_code, 400)

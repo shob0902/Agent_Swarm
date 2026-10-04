@@ -94,6 +94,12 @@
   background: transparent;
   color: var(--text-secondary);
 }
+.history-action:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.history-action-active {
+  color: var(--warning);
+}
 .history-action-danger:hover:not(:disabled) {
   color: var(--danger);
 }

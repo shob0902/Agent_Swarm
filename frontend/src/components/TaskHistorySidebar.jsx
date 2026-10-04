@@ -140,19 +140,51 @@ export default function TaskHistorySidebar({
                 </a>
               )}
               <div className="history-item-actions">
-                <button type="button" className="neu-pressable history-action" onClick={(e) => toggleFavorite(task, e)} title={task.is_favorite ? 'Unfavorite' : 'Favorite'}>
-                  {task.is_favorite ? '★' : '☆'}
+                <button
+                  type="button"
+                  className={`neu-pressable history-action${task.is_favorite ? ' history-action-active' : ''}`}
+                  onClick={(e) => toggleFavorite(task, e)}
+                  title={task.is_favorite ? 'Unfavorite' : 'Favorite'}
+                  aria-label={task.is_favorite ? 'Unfavorite' : 'Favorite'}
+                  aria-pressed={task.is_favorite}
+                >
+                  <ActionIcon name="star" filled={task.is_favorite} />
                 </button>
-                <button type="button" className="neu-pressable history-action" onClick={(e) => { e.stopPropagation(); startRename(task) }} title="Rename">✎</button>
-                <button type="button" className="neu-pressable history-action" onClick={(e) => toggleArchive(task, e)} title={task.is_archived ? 'Unarchive' : 'Archive'}>
-                  {task.is_archived ? '⤴' : '🗄'}
+                <button type="button" className="neu-pressable history-action" onClick={(e) => { e.stopPropagation(); startRename(task) }} title="Rename" aria-label="Rename">
+                  <ActionIcon name="pencil" />
                 </button>
-                <button type="button" className="neu-pressable history-action history-action-danger" onClick={(e) => remove(task, e)} title="Delete">🗑</button>
+                <button
+                  type="button"
+                  className="neu-pressable history-action"
+                  onClick={(e) => toggleArchive(task, e)}
+                  title={task.is_archived ? 'Unarchive' : 'Archive'}
+                  aria-label={task.is_archived ? 'Unarchive' : 'Archive'}
+                >
+                  <ActionIcon name={task.is_archived ? 'unarchive' : 'archive'} />
+                </button>
+                <button type="button" className="neu-pressable history-action history-action-danger" onClick={(e) => remove(task, e)} title="Delete" aria-label="Delete">
+                  <ActionIcon name="trash" />
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
     </>
+  )
+}
+const ACTION_PATHS = {
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.85L12 16.9l-5.25 2.75 1-5.85L3.5 9.7l5.9-.9z',
+  pencil: 'M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3',
+  archive: 'M3.5 5h17v4h-17zM5 9v10h14V9M10 13h4',
+  unarchive: 'M3.5 5h17v4h-17zM5 9v10h14V9M12 17v-5M9.5 14.5L12 12l2.5 2.5',
+  trash: 'M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6',
+}
+function ActionIcon({ name, filled = false }) {
+  // Outlined 18px icon drawn in the button's text colour, so it follows the theme instead of emoji colours.
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={ACTION_PATHS[name]} />
+    </svg>
   )
 }

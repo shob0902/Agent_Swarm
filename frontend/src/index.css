@@ -3,15 +3,16 @@
   --base: #EDEDED;
   --shadow-dark: #C8C8C8;
   --shadow-light: #FFFFFF;
-  --accent: #D7263D;
+  /* Light-mode text and status colours are tuned to at least 4.5:1 contrast on --base (WCAG AA). */
+  --accent: #B8162C;
   --accent-contrast: #FFFFFF;
-  --text-primary: #2B2B2B;
-  --text-secondary: #5C5C5C;
-  --text-muted: #8A8A8A;
-  --success: #5FAE85;
-  --danger: #B8443D;
-  --warning: #D6B15C;
-  --info: #6E9FD6;
+  --text-primary: #222222;
+  --text-secondary: #4A4A4A;
+  --text-muted: #636363;
+  --success: #26734B;
+  --danger: #A3322B;
+  --warning: #8A6410;
+  --info: #2F65A8;
   --radius-lg: 20px;
   --radius-md: 14px;
   --radius-sm: 10px;
@@ -25,7 +26,7 @@
   --accent-contrast: #FFFFFF;
   --text-primary: #EEEEEE;
   --text-secondary: #AAAAAA;
-  --text-muted: #777777;
+  --text-muted: #8C8C8C;
   --success: #6FBF98;
   --danger: #E0665F;
   --warning: #E0C177;

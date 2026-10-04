@@ -1,7 +1,41 @@
-# OAuth provider configuration shared by the views: which providers are usable, their public settings, and allowed redirect URIs.
+# OAuth provider configuration shared by the views: which providers are usable, their public settings, allowed
+# redirect URIs, and a clock-skew-tolerant Google adapter.
 from __future__ import annotations
 from urllib.parse import urlsplit
+import jwt
+from allauth.socialaccount.internal import jwtkit
+from allauth.socialaccount.providers.google import views as google_views
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Error
 from django.conf import settings
+# Google's ID token carries Google's clock (iat/exp). allauth verifies it with zero leeway, so a server clock just
+# a second behind Google sees a token "issued in the future" and rejects it. Google's own client libraries allow
+# for skew; so do we.
+ID_TOKEN_LEEWAY_SECONDS = 120
+class ClockSkewTolerantGoogleOAuth2Adapter(GoogleOAuth2Adapter):
+    # Same verification as allauth (signature, issuer, audience, expiry, replay), plus a small clock-skew allowance.
+    def _decode_id_token(self, app, id_token):
+        # Verifies Google's id_token, reporting the real reason when it fails instead of a bare "Invalid id_token".
+        verify_signature = not self.did_fetch_access_token
+        try:
+            if verify_signature:
+                alg, key = jwtkit.fetch_key(id_token, google_views.CERTS_URL, jwtkit.lookup_kid_pem_x509_certificate)
+                algorithms = [alg]
+            else:
+                key, algorithms = "", None
+            data = jwt.decode(
+                id_token,
+                key=key,
+                options={"verify_signature": verify_signature, "verify_iss": True, "verify_aud": True, "verify_exp": True},
+                issuer=google_views.ID_TOKEN_ISSUER,
+                audience=app.client_id,
+                algorithms=algorithms,
+                leeway=ID_TOKEN_LEEWAY_SECONDS,
+            )
+        except jwt.PyJWTError as exc:
+            raise OAuth2Error(f"Invalid id_token: {exc}") from exc
+        jwtkit.verify_jti(data)
+        return data
 PROVIDERS = {
     "google": {
         "name": "Google",

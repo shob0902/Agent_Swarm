@@ -1,5 +1,6 @@
 # DRF serializers for reading user details, email/password registration, and the OAuth code exchange.
 from dj_rest_auth.registration.serializers import RegisterSerializer as BaseRegisterSerializer
+from allauth.socialaccount.providers.oauth2.client import OAuth2Error
 from dj_rest_auth.registration.serializers import SocialLoginSerializer
 from rest_framework import serializers
 from .models import User
@@ -34,6 +35,10 @@ class CodeOnlySocialLoginSerializer(SocialLoginSerializer):
     code = serializers.CharField(required=True, allow_blank=False, max_length=2048)
     redirect_uri = serializers.CharField(required=False, allow_blank=True, max_length=500)
     def validate(self, attrs):
-        # Drops anything but the code before handing off to the dj-rest-auth/allauth exchange.
+        # Drops anything but the code before handing off to the dj-rest-auth/allauth exchange. Provider-side
+        # failures (bad id_token, unreachable key endpoint) become a readable 400 instead of a 500.
         attrs = {"code": attrs["code"]}
-        return super().validate(attrs)
+        try:
+            return super().validate(attrs)
+        except OAuth2Error as exc:
+            raise serializers.ValidationError({"detail": f"The sign-in provider's response could not be verified: {exc}"}) from exc

@@ -293,7 +293,7 @@ backend/
 │   └── tests/                      Backend test suite
 └── docker/sandbox.Dockerfile       Python 3.11 + Node 20 + pytest/ruff/flake8
 frontend/                           React 18 + Vite UI
-demo_repo/                          Toy Flask app used as an end-to-end target
+(demo target)                       Toy Flask app used as an end-to-end target; its own repo at github.com/shob0902/demo_repo (not tracked here)
 ```
 
 ---
@@ -411,7 +411,7 @@ JWT cookies set ──► back to the page the user started from
   - Configure the consent screen with the scopes `openid`, `email`, `profile`.
 - **GitHub:** [github.com/settings/developers](https://github.com/settings/developers) → *New OAuth App*.
   - *Homepage URL* = the frontend origin. *Authorization callback URL* = `<origin>/auth/callback/github`.
-  - A GitHub OAuth App allows only one callback URL, so create one app for local development and one for production.
+  - Add one redirect URI per frontend origin. A single app can hold up to 10, e.g. `https://agswarm.netlify.app/auth/callback/github` and `http://localhost:5173/auth/callback/github`. Leave wildcard matching and Device Flow off.
   - This is **not** the token that opens PRs. It only asks for `read:user user:email`.
 
 **2. Configure the backend** (`backend/.env` locally, the host dashboard in production):
