@@ -1,5 +1,6 @@
 # Auth endpoints: email signup, the public OAuth provider config, and the server-side half of the Google and GitHub OAuth exchange.
 from __future__ import annotations
+import logging
 from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.app_settings import api_settings as rest_auth_settings
@@ -7,11 +8,13 @@ from dj_rest_auth.jwt_auth import set_jwt_cookies
 from dj_rest_auth.registration.views import RegisterView as BaseRegisterView
 from dj_rest_auth.registration.views import SocialLoginView
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from . import oauth
 from .serializers import CodeOnlySocialLoginSerializer
+logger = logging.getLogger(__name__)
 class RegisterView(BaseRegisterView):
     # Signup view that also sets the JWT cookies, which the base class skips.
     def create(self, request, *args, **kwargs):
@@ -42,7 +45,16 @@ class _ProviderLogin(SocialLoginView):
             return Response({"detail": "This redirect URI is not allowed. Add its origin to FRONTEND_BASE_URL or CORS_ALLOWED_ORIGINS."}, status=status.HTTP_400_BAD_REQUEST)
         # The code was issued for this exact redirect URI, so the token exchange must send the same one.
         self.callback_url = redirect_uri
-        return super().post(request, *args, **kwargs)
+        try:
+            return super().post(request, *args, **kwargs)
+        except APIException:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- log the full traceback, tell the browser only the error type
+            logger.exception("%s sign-in failed", oauth.PROVIDERS[self.provider]["name"])
+            return Response(
+                {"detail": f"Sign-in failed on the server ({type(exc).__name__}). The full error is in the server log."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 class GoogleLogin(_ProviderLogin):
     # Trades a Google authorization code for a session, tolerating small server/Google clock differences.
     adapter_class = oauth.ClockSkewTolerantGoogleOAuth2Adapter

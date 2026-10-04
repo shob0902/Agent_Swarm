@@ -238,5 +238,11 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
-    "loggers": {"agents": {"handlers": ["console"], "level": env("AGENTS_LOG_LEVEL", default="INFO"), "propagate": False}},
+    "loggers": {
+        "agents": {"handlers": ["console"], "level": env("AGENTS_LOG_LEVEL", default="INFO"), "propagate": False},
+        "accounts": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        # Django only prints 500 tracebacks to the console when DEBUG=True; this makes them show up in the
+        # host's log stream (Render "Logs") in production too.
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+    },
 }

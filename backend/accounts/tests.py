@@ -189,3 +189,20 @@ class GoogleIdTokenTests(TestCase):
         import time
         response = self._login_with_id_token(iat=int(time.time()) - 7200, exp=int(time.time()) - 3600)
         self.assertEqual(response.status_code, 400)
+@override_settings(**OAUTH_SETTINGS)
+class UnexpectedSignInErrorTests(TestCase):
+    # A crash inside the provider flow is logged with its traceback and reported to the browser by type only.
+    def test_crash_returns_json_500_with_error_type_and_logs_traceback(self):
+        # The browser gets "IntegrityError", the log gets the whole story, the secret detail stays server-side.
+        def boom(self, request, app, token, **kwargs):
+            # Simulates a database-level failure while creating the account.
+            from django.db import IntegrityError
+            raise IntegrityError("duplicate key value violates unique constraint secret_detail")
+        with mock.patch.object(OAuth2Client, "get_access_token", return_value={"access_token": "at"}), \
+                mock.patch.object(GitHubOAuth2Adapter, "complete_login", autospec=True, side_effect=boom), \
+                self.assertLogs("accounts.views", level="ERROR") as logs:
+            response = APIClient().post("/api/auth/github/", {"code": "c", "redirect_uri": "http://localhost:5173/auth/callback/github"}, format="json")
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("IntegrityError", response.json()["detail"])
+        self.assertNotIn("secret_detail", response.json()["detail"])
+        self.assertIn("secret_detail", "\n".join(logs.output))
