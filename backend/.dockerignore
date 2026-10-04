@@ -1,0 +1,2 @@
+# docker/sandbox.Dockerfile copies nothing from the build context, so send none (venv/ alone can be hundreds of MB).
+*

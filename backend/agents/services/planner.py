@@ -4,7 +4,7 @@ from pathlib import Path
 from django.conf import settings
 from .. import llm_client
 from ..prompts import load_prompt
-from .common import AgentRunFailed, parse_strict_json, track_run
+from .common import AgentRunFailed, list_repo_files, parse_strict_json, track_run
 IGNORE_DIRS = {
     ".git", "node_modules", "__pycache__", "venv", ".venv", "env",
     ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build", "egg-info", ".agent_swarm",
@@ -12,19 +12,13 @@ IGNORE_DIRS = {
 MAX_TREE_ENTRIES = 400
 MAX_PLAN_OUTPUT_TOKENS = 1500
 def build_file_tree(repo_path: str) -> str:
-    # Builds a flat sorted listing of the repo, skipping noise directories and capping the length.
-    root = Path(repo_path)
-    if not root.exists():
+    # Flat sorted listing of the repo's files (each path already names its directories, so they aren't
+    # listed separately), skipping noise directories and capping the length.
+    if not Path(repo_path).exists():
         return "(local checkout does not exist)"
-    lines: list[str] = []
-    for path in sorted(root.rglob("*")):
-        if any(part in IGNORE_DIRS for part in path.parts):
-            continue
-        rel = path.relative_to(root)
-        lines.append(str(rel) + ("/" if path.is_dir() else ""))
-        if len(lines) >= MAX_TREE_ENTRIES:
-            lines.append("... (truncated)")
-            break
+    lines = sorted(list_repo_files(repo_path, IGNORE_DIRS))
+    if len(lines) > MAX_TREE_ENTRIES:
+        lines = lines[:MAX_TREE_ENTRIES] + ["... (truncated)"]
     return "\n".join(lines) if lines else "(empty repository)"
 def run_planner(ctx) -> dict:
     # Asks the model for a plan and returns it as a dict of title, summary and steps, recording the run as it goes.

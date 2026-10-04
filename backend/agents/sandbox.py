@@ -43,10 +43,7 @@ def run_in_sandbox(
     # allow_network is only ever set for dependency installation; tests, builds and lint run offline.
     timeout = timeout or settings.SANDBOX_TIMEOUT_SECONDS
     image = image or settings.SANDBOX_IMAGE
-    try:
-        client = docker.from_env()
-    except docker.errors.DockerException as exc:
-        raise SandboxError(f"Could not connect to Docker daemon: {exc}") from exc
+    client = _docker_client()
     container = None
     try:
         container = client.containers.run(
@@ -78,6 +75,17 @@ def run_in_sandbox(
         return SandboxResult(exit_code=wait_result.get("StatusCode", -1), logs=logs)
     finally:
         _force_remove(container)
+_CLIENT = None
+def _docker_client():
+    # One Docker client per process: every check reuses it instead of re-reading the environment and
+    # opening a new connection to the daemon. A failed connection isn't cached, so the next call retries.
+    global _CLIENT
+    if _CLIENT is None:
+        try:
+            _CLIENT = docker.from_env()
+        except docker.errors.DockerException as exc:
+            raise SandboxError(f"Could not connect to Docker daemon: {exc}") from exc
+    return _CLIENT
 def _host_user() -> str | None:
     # On Linux (e.g. the GitHub Actions runner) run as the host user so files written into the clone stay ours.
     if hasattr(os, "getuid"):

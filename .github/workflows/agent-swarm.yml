@@ -87,6 +87,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # The image build (~1 min uncached) runs in the background while Python and the backend install;
+      # "Wait for sandbox image" below joins it. The Dockerfile copies nothing, so no build context is sent.
+      - name: Start sandbox image build
+        run: |
+          nohup sh -c 'docker build -t agent-swarm-sandbox:latest - < docker/sandbox.Dockerfile > /tmp/sandbox-build.log 2>&1; echo $? > /tmp/sandbox-build.rc' > /dev/null 2>&1 &
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -105,8 +111,16 @@ jobs:
           RUNNER_SHARED_SECRET: ${{ secrets.RUNNER_SHARED_SECRET }}
         run: python manage.py run_agent_task --task-id "$TASK_ID" --remote --check
 
-      - name: Build sandbox image
-        run: docker build -t agent-swarm-sandbox:latest -f docker/sandbox.Dockerfile .
+      - name: Wait for sandbox image
+        timeout-minutes: 15
+        run: |
+          while [ ! -f /tmp/sandbox-build.rc ]; do sleep 2; done
+          cat /tmp/sandbox-build.log
+          rc="$(cat /tmp/sandbox-build.rc)"
+          if [ "$rc" != "0" ]; then
+            echo "::error title=Sandbox image::docker build failed (exit $rc); see the log above."
+            exit 1
+          fi
 
       - name: Run Analyzer -> Planner -> Coder -> Tester -> Reviewer -> Pull Request
         env:

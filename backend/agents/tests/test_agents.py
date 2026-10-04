@@ -9,9 +9,17 @@ from agents.pipeline.context import PipelineContext
 from agents.sandbox import SandboxError, SandboxResult
 from agents.services import reviewer, tester
 from agents.services.analyzer import detect_project
-from agents.services.coder import _apply_files_and_diff, _safe_relative_path, summarize_changes
+from agents.services.coder import (
+    MAX_FILE_CHARS,
+    _apply_files_and_diff,
+    _format_file_contents,
+    _safe_relative_path,
+    _validate_files,
+    apply_files,
+    summarize_changes,
+)
 from agents.services.common import AgentRunFailed, parse_strict_json
-from agents.services.repo import cleanup_clone, head_info
+from agents.services.repo import cleanup_clone, head_info, reset_tracked_files
 from agents.services.safety import is_blocked_path, scan_changes
 from .helpers import FakeReporter, make_git_repo
 def _write_tree(files: dict[str, str]) -> str:
@@ -222,6 +230,16 @@ class CoderChangeTrackingTests(SimpleTestCase):
         self.assertEqual(summary["modes"]["app.py"], "100644")
         self.assertIn("print('v3')", summary["diff"])
         self.assertEqual(head_info(self.root).branch, "main")
+    def test_reset_and_reapply_undoes_what_tests_wrote(self):
+        # A test run rewrote a Coder file and an untouched tracked file; restoring brings back exactly the Coder's output.
+        _apply_files_and_diff(self.root, [{"path": "app.py", "content": "print('coder')\n"}, {"path": "pkg/new.py", "content": "Y = 2\n"}])
+        saved = summarize_changes(self.root, ["app.py", "pkg/new.py"])["contents"]
+        for rel in ("app.py", "util.py", "pkg/new.py"):
+            (Path(self.root) / rel).write_text("tampered by a test\n", encoding="utf-8")
+        reset_tracked_files(self.root)
+        apply_files(self.root, [{"path": p, "content": c} for p, c in saved.items()])
+        read = lambda rel: (Path(self.root) / rel).read_text(encoding="utf-8")  # noqa: E731
+        self.assertEqual((read("app.py"), read("util.py"), read("pkg/new.py")), ("print('coder')\n", "X = 1\n", "Y = 2\n"))
     def test_protected_and_escaping_paths_rejected(self):
         # Path traversal and protected files never get written.
         root = Path(self.root).resolve()
@@ -229,6 +247,49 @@ class CoderChangeTrackingTests(SimpleTestCase):
             with self.assertRaises(AgentRunFailed, msg=bad):
                 _safe_relative_path(root, bad)
         self.assertEqual(str(_safe_relative_path(root, ".env.example")), ".env.example")
+class CoderOutputTests(SimpleTestCase):
+    # Files the model only saw in part can be edited in place but never rewritten whole.
+    def setUp(self):
+        # A repo with one file longer than the prompt's per-file cap and one short file.
+        self.long = "".join(f"line {i}\n" for i in range(MAX_FILE_CHARS // 4)) + "TAIL = True\n"
+        self.root = make_git_repo({"big.py": self.long, "small.py": "A = 1\n"})
+    def tearDown(self):
+        # Removes the repo.
+        cleanup_clone(self.root)
+    def validate(self, files, truncated=frozenset({"big.py"})):
+        # Runs _validate_files on a model answer built from `files`.
+        return _validate_files(json.dumps({"files": files}), self.root, truncated)
+    def test_long_files_are_reported_truncated(self):
+        # The prompt marks the file and the caller learns which files were cut.
+        text, truncated = _format_file_contents(self.root, ["big.py", "small.py"])
+        self.assertEqual(truncated, {"big.py"})
+        self.assertIn("### big.py  (TRUNCATED", text)
+        self.assertNotIn("TAIL = True", text)
+    def test_whole_rewrite_of_truncated_file_is_rejected(self):
+        # Rewriting a file the model never saw the end of would drop that end.
+        with self.assertRaisesMessage(AgentRunFailed, "TRUNCATED"):
+            self.validate([{"path": "big.py", "content": "line 0\n"}])
+    def test_edits_keep_the_unseen_part(self):
+        # Search/replace changes the shown part and leaves the tail intact.
+        files = self.validate([
+            {"path": "./big.py", "edits": [{"search": "line 1\n", "replace": "line one\n"}]},
+            {"path": "small.py", "content": "A = 2\n"},
+        ])
+        result = {f["path"]: f["content"] for f in files}
+        self.assertTrue(result["big.py"].startswith("line 0\nline one\nline 2\n"))
+        self.assertTrue(result["big.py"].endswith("TAIL = True\n"))
+        self.assertEqual(result["small.py"], "A = 2\n")
+    def test_edits_must_match_exactly_once(self):
+        # Missing or ambiguous search text is an error the Coder is asked to fix, never a silent no-op.
+        for search, problem in (("nope", "was not found"), ("line", "matches"), ("", "is empty")):
+            with self.assertRaisesMessage(AgentRunFailed, problem):
+                self.validate([{"path": "big.py", "edits": [{"search": search, "replace": "x"}]}])
+    def test_edits_need_an_existing_file_and_one_mode(self):
+        # Edits can't create files, and an entry can't carry both content and edits.
+        with self.assertRaisesMessage(AgentRunFailed, "does not exist"):
+            self.validate([{"path": "missing.py", "edits": [{"search": "a", "replace": "b"}]}])
+        with self.assertRaisesMessage(AgentRunFailed, "exactly one"):
+            self.validate([{"path": "small.py", "content": "B\n", "edits": []}])
 class SafetyAndParsingTests(SimpleTestCase):
     # Small pure helpers.
     def test_blocked_paths(self):

@@ -37,6 +37,8 @@ class OrchestratorTests(SimpleTestCase):
                 patch("clone_repo", return_value="/tmp/clone")
             patch("cleanup_clone")
             patch("head_info", return_value=CloneInfo(branch="main", sha="abc123"))
+            patch("reset_tracked_files")
+            patch("apply_files")
             patch("run_analyzer")
             patch("run_planner", return_value=PLAN)
             patch("run_coder", side_effect=lambda ctx, plan, feedback, attempt, prev: {"files": ["app.py"], "diff": "", "file_diffs": []})
@@ -78,6 +80,13 @@ class OrchestratorTests(SimpleTestCase):
         self.assertIn("assert 1 == 2", coder_calls[1].args[2])
         self.assertEqual(coder_calls[1].args[4], ["app.py"])
         self.assertEqual(reporter.task["retry_count"], 1)
+    def test_coder_output_is_restored_after_every_test_run(self):
+        # Tests run against a read-write clone; afterwards the tree is reset and the Coder's checkpointed code re-applied.
+        _, _, mocks = self.run_pipeline(tests=[FAIL, PASS])
+        self.assertEqual(mocks["reset_tracked_files"].call_count, 2)
+        mocks["reset_tracked_files"].assert_called_with("/tmp/clone")
+        self.assertEqual(mocks["apply_files"].call_count, 2)
+        mocks["apply_files"].assert_called_with("/tmp/clone", [{"path": "app.py", "content": "CACHE = {}\n"}])
     def test_test_retries_are_bounded(self):
         # Three failing attempts end the task; no PR is created.
         result, reporter, mocks = self.run_pipeline(tests=[FAIL, FAIL, FAIL])

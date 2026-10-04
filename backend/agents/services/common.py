@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+import os
 import re
 import time
 from contextlib import contextmanager
@@ -11,6 +12,20 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 class AgentRunFailed(Exception):
     # Raised for a handled stage failure that should still be logged as a failed run.
     pass
+def list_repo_files(root: str, skip: set[str] | frozenset[str], limit: int | None = None) -> list[str]:
+    # Repo-relative POSIX paths of every file, never descending into skipped directories (node_modules,
+    # installed deps...), so a clone with dependencies installed is still cheap to scan. Unordered.
+    out: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip]
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        for name in filenames:
+            if name not in skip:
+                out.append(prefix + name)
+                if limit is not None and len(out) >= limit:
+                    return out
+    return out
 def parse_strict_json(text: str) -> Any:
     # Pulls the first JSON value out of a model response, tolerating code fences and surrounding prose.
     candidate = _strip_code_fence(text)

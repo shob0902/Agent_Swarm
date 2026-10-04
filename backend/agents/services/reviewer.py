@@ -24,7 +24,7 @@ def run_reviewer(ctx, plan: dict, changes: dict, test_result=None, attempt: int 
         "reviewer_prompt",
         task_description=ctx.description,
         stack_summary=stack_summary,
-        plan_json=json.dumps(plan, indent=2),
+        plan_json=json.dumps(plan, ensure_ascii=False, separators=(",", ":")),
         test_summary=test_summary,
         changed_files="\n".join(f"- {f['path']} ({f.get('change', 'modified')})" for f in changed_files) or "(none)",
         diff=diff[:MAX_DIFF_CHARS] + ("\n... (diff truncated)" if len(diff) > MAX_DIFF_CHARS else ""),

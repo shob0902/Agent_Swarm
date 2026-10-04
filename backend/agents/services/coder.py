@@ -1,5 +1,6 @@
 # Coder agent: turns the plan into whole-file rewrites, applies them to the clone and diffs the result.
 from __future__ import annotations
+import json
 import logging
 import re
 import threading
@@ -9,7 +10,7 @@ from git import InvalidGitRepositoryError, Repo
 from .. import llm_client
 from ..prompts import load_prompt
 from . import key_pool
-from .common import AgentRunFailed, parse_strict_json, track_run
+from .common import AgentRunFailed, list_repo_files, parse_strict_json, track_run
 from .safety import is_blocked_path
 logger = logging.getLogger(__name__)
 MAX_FILE_CHARS = 4000
@@ -41,7 +42,7 @@ def run_coder(ctx, plan: dict, feedback: str | None, attempt: int, previously_ch
     # Picks the relevant files, asks the model to rewrite them, writes them out and returns the diff.
     # feedback is failing test/build output or a Reviewer rejection, already phrased by the pipeline.
     relevant = sorted(set(_select_relevant_files(ctx.local_path, plan)) | set(previously_changed or []))
-    file_contents = _format_file_contents(ctx.local_path, relevant)
+    file_contents, truncated = _format_file_contents(ctx.local_path, relevant)
     retry_context = f"\n{feedback[:MAX_FEEDBACK_CHARS]}\n" if feedback else ""
     prompt = load_prompt(
         "coder_prompt",
@@ -53,6 +54,7 @@ def run_coder(ctx, plan: dict, feedback: str | None, attempt: int, previously_ch
     input_context = {
         "plan": plan,
         "relevant_files": relevant,
+        "truncated_files": sorted(truncated),
         "attempt": attempt,
         "feedback": feedback,
     }
@@ -62,7 +64,7 @@ def run_coder(ctx, plan: dict, feedback: str | None, attempt: int, previously_ch
     ]
     with track_run(ctx, agent_type="coder", provider=CODER_PROVIDER, input_context=input_context, retry_count=attempt) as run:
         try:
-            files, response, served_by, tried, malformed = _request_files(messages, attempt)
+            files, response, served_by, tried, malformed = _request_files(messages, attempt, ctx.local_path, truncated)
         except _CoderKeysExhausted as exc:
             run.output = {"error": str(exc), "keys_tried": exc.attempted}
             raise
@@ -77,8 +79,8 @@ def run_coder(ctx, plan: dict, feedback: str | None, attempt: int, previously_ch
             **result,
         }
         return result
-def _request_files(messages: list[dict], attempt: int):
-    # Asks for the rewrites and re-asks a couple of times if the model hands back unusable JSON.
+def _request_files(messages: list[dict], attempt: int, repo_path: str, truncated: set[str]):
+    # Asks for the changes and re-asks a couple of times if the model hands back unusable JSON or edits that don't apply.
     tried: list[str] = []
     last_exc: AgentRunFailed | None = None
     for reask in range(MAX_MALFORMED_RETRIES + 1):
@@ -86,7 +88,7 @@ def _request_files(messages: list[dict], attempt: int):
         response, slot, slots = _call_coder_llm(current, attempt + reask)
         tried.extend(s for s in slots if s not in tried)
         try:
-            return _validate_files(response.text), response, slot, tried, reask
+            return _validate_files(response.text, repo_path, truncated), response, slot, tried, reask
         except AgentRunFailed as exc:
             last_exc = exc
             logger.warning(
@@ -102,10 +104,12 @@ def _reask_turn(exc: AgentRunFailed | None) -> list[dict]:
         {
             "role": "user",
             "content": (
-                f"Your previous response could not be parsed: {str(exc)[:200]}. "
+                f"Your previous response could not be used: {str(exc)[:300]}. "
                 "Return ONLY the JSON object, complete, with every string properly "
                 "escaped and closed, and nothing before or after it. If the files are "
-                "long, include fewer files rather than truncating the JSON."
+                "long, include fewer files rather than truncating the JSON. Files marked "
+                "TRUNCATED must be changed with \"edits\" whose \"search\" text is copied "
+                "exactly from the content shown and occurs exactly once."
             ),
         }
     ]
@@ -158,19 +162,14 @@ def _log_key_failure(slot: str, exc: Exception, *, has_more: bool) -> None:
         " -- failing over to the next key" if has_more else " -- no more keys to try",
     )
 def _plan_json(plan: dict) -> str:
-    # Pretty-prints the plan for embedding in the prompt.
-    import json
-    return json.dumps(plan, indent=2)
+    # Compact JSON for the prompt; indentation would only cost tokens.
+    return json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
 def _select_relevant_files(repo_path: str, plan: dict) -> list[str]:
     # Prefers files named in the plan, falling back to a size-capped sweep when nothing matches.
     root = Path(repo_path)
     if not root.exists():
         return []
-    all_files = [
-        p for p in root.rglob("*")
-        if p.is_file() and not any(part in IGNORE_DIRS for part in p.parts)
-    ]
-    all_rel = {str(p.relative_to(root)).replace("\\", "/") for p in all_files}
+    all_rel = set(list_repo_files(repo_path, IGNORE_DIRS))
     mentioned_tokens: set[str] = set()
     for step in plan.get("steps", []):
         mentioned_tokens.update(_PATH_TOKEN_RE.findall(step))
@@ -190,12 +189,15 @@ def _select_relevant_files(repo_path: str, plan: dict) -> list[str]:
         if budget <= 0:
             break
     return fallback
-def _format_file_contents(repo_path: str, relative_paths: list[str]) -> str:
+def _format_file_contents(repo_path: str, relative_paths: list[str]) -> tuple[str, set[str]]:
     # Renders the chosen files as fenced blocks, trimming each one and the total to the context budget.
+    # Returns the text and the files shown only in part: the model hasn't seen all of those, so it may
+    # only edit them in place (see _validate_files), never rewrite them whole.
     if not relative_paths:
-        return "(no existing files matched the plan -- create new files as needed)"
+        return "(no existing files matched the plan -- create new files as needed)", set()
     root = Path(repo_path)
     blocks = []
+    truncated_paths: set[str] = set()
     remaining = MAX_TOTAL_CONTEXT_CHARS
     for rel in relative_paths:
         if remaining <= 0:
@@ -206,36 +208,81 @@ def _format_file_contents(repo_path: str, relative_paths: list[str]) -> str:
             content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        truncated = content[:MAX_FILE_CHARS]
+        shown = content[:MAX_FILE_CHARS]
+        header = f"### {rel}"
         if len(content) > MAX_FILE_CHARS:
-            truncated += "\n... (truncated)"
-        remaining -= len(truncated)
-        blocks.append(f"### {rel}\n```\n{truncated}\n```")
-    return "\n\n".join(blocks)
-def _validate_files(text: str) -> list[dict]:
-    # Checks each entry has a path and content, and collapses duplicate paths keeping the last one.
+            shown += "\n... (truncated)"
+            header += f"  (TRUNCATED: first {MAX_FILE_CHARS} of {len(content)} chars shown; use \"edits\")"
+            truncated_paths.add(rel.replace("\\", "/"))
+        remaining -= len(shown)
+        blocks.append(f"{header}\n```\n{shown}\n```")
+    return "\n\n".join(blocks), truncated_paths
+def _normalize_path(path: str) -> str:
+    # Repo-relative path in the form the rest of the Coder uses: forward slashes, no leading "./".
+    path = path.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+def _validate_files(text: str, repo_path: str, truncated: set[str] | frozenset = frozenset()) -> list[dict]:
+    # Turns the model's answer into final {path, content} pairs. Each entry is either a whole-file
+    # "content" or a list of search/replace "edits" applied to the file on disk; a file the model only
+    # saw truncated must use edits, since a whole rewrite would silently drop the part it never saw.
+    # Entries for the same path apply in order, so later edits build on an earlier entry.
     data = parse_strict_json(text)
     if not isinstance(data, dict) or not isinstance(data.get("files"), list) or not data["files"]:
         raise AgentRunFailed(f"Coder JSON missing a non-empty 'files' list. Raw output: {text[:500]!r}")
+    root = Path(repo_path).resolve()
+    resolved: dict[str, str] = {}
     for entry in data["files"]:
-        if not isinstance(entry, dict) or not entry.get("path") or "content" not in entry:
-            raise AgentRunFailed(f"Coder 'files' entries need 'path' and 'content'. Raw output: {text[:500]!r}")
-    deduped = {entry["path"]: entry for entry in data["files"]}
-    if len(deduped) != len(data["files"]):
-        logger.warning(
-            "Coder returned duplicate paths %s -- keeping the last entry for each",
-            [p for p in {e["path"] for e in data["files"]} if sum(e["path"] == p for e in data["files"]) > 1],
-        )
-    return list(deduped.values())
-def _apply_files_and_diff(repo_path: str, files: list[dict]) -> str:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or not entry["path"].strip():
+            raise AgentRunFailed(f"Coder 'files' entries need a 'path'. Raw output: {text[:500]!r}")
+        path = _normalize_path(entry["path"].strip())
+        has_content, has_edits = "content" in entry, "edits" in entry
+        if has_content == has_edits:
+            raise AgentRunFailed(f"Coder entry for {path!r} needs exactly one of 'content' or 'edits'")
+        if has_content:
+            if not isinstance(entry["content"], str):
+                raise AgentRunFailed(f"Coder 'content' for {path!r} must be a string")
+            if path in truncated:
+                raise AgentRunFailed(
+                    f"{path!r} was shown TRUNCATED, so it must be changed with 'edits', not rewritten with 'content'"
+                )
+            resolved[path] = entry["content"]
+        else:
+            current = resolved[path] if path in resolved else _read_existing(root, path)
+            resolved[path] = _apply_edits(path, current, entry["edits"])
+    return [{"path": p, "content": c} for p, c in resolved.items()]
+def _read_existing(root: Path, path: str) -> str:
+    # Current content of a file the model wants to edit in place; edits need a file to apply to.
+    abs_path = root / _safe_relative_path(root, path)
+    if not abs_path.is_file():
+        raise AgentRunFailed(f"Coder sent 'edits' for {path!r}, which does not exist; create new files with 'content'")
+    return abs_path.read_text(encoding="utf-8", errors="replace")
+def _apply_edits(path: str, content: str, edits) -> str:
+    # Applies search/replace pairs in order. Each search must match exactly once, so an edit can
+    # never land in the wrong place or silently do nothing.
+    if not isinstance(edits, list) or not edits:
+        raise AgentRunFailed(f"Coder 'edits' for {path!r} must be a non-empty list")
+    for i, edit in enumerate(edits, 1):
+        if not isinstance(edit, dict) or not isinstance(edit.get("search"), str) or not isinstance(edit.get("replace"), str):
+            raise AgentRunFailed(f"Coder edit {i} for {path!r} needs string 'search' and 'replace'")
+        search = edit["search"]
+        count = content.count(search) if search else 0
+        if count != 1:
+            problem = "is empty" if not search else ("was not found" if count == 0 else f"matches {count} places")
+            raise AgentRunFailed(f"Coder edit {i} for {path!r}: the search text {problem}: {search[:120]!r}")
+        content = content.replace(search, edit["replace"], 1)
+    return content
+def _apply_files_and_diff(repo_path: str, files: list[dict], with_diff: bool = True) -> tuple[str, list[dict]]:
     # Writes each rewritten file into the clone and returns the real git diff plus per-file before/after pairs.
+    # New files are marked intent-to-add so later diffs against HEAD include them.
     root = Path(repo_path).resolve()
     written: list[str] = []
     file_diffs: list[dict] = []
     for entry in files:
         rel = _safe_relative_path(root, entry["path"])
         abs_path = root / rel
-        old_content = abs_path.read_text(encoding="utf-8", errors="replace") if abs_path.exists() else ""
+        old_content = abs_path.read_text(encoding="utf-8", errors="replace") if with_diff and abs_path.exists() else ""
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(entry["content"], encoding="utf-8")
         rel_str = str(rel).replace("\\", "/")
@@ -251,11 +298,11 @@ def _apply_files_and_diff(repo_path: str, files: list[dict]) -> str:
                 repo.git.add("-N", *written)
             except Exception:  # noqa: BLE001
                 pass
-        diff_text = repo.git.diff("--no-color", *written) if written else ""
+        diff_text = repo.git.diff("--no-color", *written) if with_diff and written else ""
     return diff_text, file_diffs
 def apply_files(repo_path: str, files: list[dict]) -> None:
-    # Writes saved {path, content} entries back into a clone (used when a retry resumes after the Coder).
-    _apply_files_and_diff(repo_path, files)
+    # Writes saved {path, content} entries back into a clone (on resume, and after each test run); no diff needed.
+    _apply_files_and_diff(repo_path, files, with_diff=False)
 def _safe_relative_path(root: Path, raw_path: str) -> Path:
     # Blocks any path that would escape the repo root, such as one using '..'.
     candidate = (root / raw_path).resolve()
@@ -277,18 +324,23 @@ def _summarize_changes(repo: Repo, repo_path: str, paths: list[str]) -> dict:
     file_diffs: list[dict] = []
     contents: dict[str, str] = {}
     modes: dict[str, str] = {}
+    # Base blobs come from GitPython's one persistent `git cat-file` process, not two git subprocesses per file.
+    tree = repo.head.commit.tree
     for rel in sorted(set(paths)):
         abs_path = Path(repo_path) / rel
         if not abs_path.is_file():
             continue
         new_content = abs_path.read_text(encoding="utf-8", errors="replace")
-        tree_entry = repo.git.ls_tree("HEAD", "--", rel).split()
-        if tree_entry:
+        try:
+            blob = tree / rel
+        except KeyError:
+            blob = None
+        if blob is not None:
             # Normalise line endings the same way read_text does, so CRLF blobs don't read as changed.
-            old_content = repo.git.show(f"HEAD:{rel}", strip_newline_in_stdout=False).replace("\r\n", "\n")
+            old_content = blob.data_stream.read().decode("utf-8", errors="replace").replace("\r\n", "\n")
             if old_content == new_content:
                 continue
-            change, mode = "modified", tree_entry[0]
+            change, mode = "modified", f"{blob.mode:o}"
         else:
             old_content, change, mode = "", "added", "100644"
         changed.append({"path": rel, "change": change})

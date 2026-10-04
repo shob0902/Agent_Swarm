@@ -141,6 +141,7 @@ class ResumedPipelineTests(SimpleTestCase):
             patch("checkout_commit")
             patch("head_info", return_value=CloneInfo("main", "fresh-sha"))
             patch("apply_files")
+            patch("reset_tracked_files")
             patch("detect_project")
             patch("run_analyzer")
             patch("run_planner", return_value=PLAN)
@@ -172,7 +173,10 @@ class ResumedPipelineTests(SimpleTestCase):
         result, _, mocks = self.execute("tester", cp)
         self.assertEqual(result["outcome"], "pull_request_created")
         mocks["checkout_commit"].assert_called_once_with("/tmp/clone", "abc123")
-        mocks["apply_files"].assert_called_once_with("/tmp/clone", [{"path": "app.py", "content": "MAX_USERS = 100\n"}])
+        # Applied once on resume, and again after the test run to undo anything the tests wrote.
+        saved = mock.call("/tmp/clone", [{"path": "app.py", "content": "MAX_USERS = 100\n"}])
+        self.assertEqual(mocks["apply_files"].call_args_list, [saved, saved])
+        mocks["reset_tracked_files"].assert_called_once_with("/tmp/clone")
         mocks["run_coder"].assert_not_called()
         mocks["run_planner"].assert_not_called()
         mocks["run_analyzer"].assert_not_called()
@@ -218,6 +222,8 @@ class ResumedPipelineTests(SimpleTestCase):
                 mock.patch.object(orchestrator, "run_planner", return_value=PLAN), \
                 mock.patch.object(orchestrator, "run_coder", return_value={"files": ["app.py"]}), \
                 mock.patch.object(orchestrator, "run_tester", return_value=PASS), \
+                mock.patch.object(orchestrator, "reset_tracked_files"), \
+                mock.patch.object(orchestrator, "apply_files"), \
                 mock.patch.object(orchestrator, "summarize_changes", return_value=SUMMARY), \
                 mock.patch.object(orchestrator, "run_reviewer", return_value=APPROVED), \
                 override_settings(AGENT_GITHUB_TOKEN=""):

@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from git import GitCommandError, Repo
 from ..github.repo_url import InvalidRepoURL, is_valid_github_url, parse_github_url
 logger = logging.getLogger(__name__)
-__all__ = ["RepoCloneError", "CloneInfo", "is_valid_github_url", "clone_repo", "head_info", "checkout_commit", "cleanup_clone"]
+__all__ = [
+    "RepoCloneError", "CloneInfo", "is_valid_github_url", "clone_repo", "head_info", "checkout_commit",
+    "reset_tracked_files", "cleanup_clone",
+]
 class RepoCloneError(Exception):
     # Raised when the URL is malformed or the clone itself fails.
     pass
@@ -50,6 +53,14 @@ def checkout_commit(local_path: str, sha: str) -> None:
             repo.git.checkout("--detach", sha)
     except GitCommandError as exc:
         raise RepoCloneError(f"Could not check out base commit {sha[:12]}: {exc}") from exc
+def reset_tracked_files(local_path: str) -> None:
+    # Puts every tracked file back to the base commit. Untracked files (installed dependencies, files the
+    # Coder added) are left alone; the caller re-applies the Coder's output on top.
+    try:
+        with Repo(local_path) as repo:
+            repo.git.checkout("HEAD", "--", ".")
+    except GitCommandError as exc:
+        raise RepoCloneError(f"Could not reset the clone to its base commit: {exc}") from exc
 def _clear_readonly(func, path, exc_info):
     # rmtree hook that clears the read-only bit git leaves on pack files, which trips up Windows.
     os.chmod(path, stat.S_IWRITE)

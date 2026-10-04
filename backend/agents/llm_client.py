@@ -2,6 +2,7 @@
 from __future__ import annotations
 import logging
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,9 +64,19 @@ def call_llm(
         except Exception as exc:  # noqa: BLE001
             raise LLMError(f"{provider} call failed: {exc}") from exc
     raise LLMRateLimitError(f"{provider} call failed after {MAX_RETRIES} retries (rate limited)") from last_exc
+_CLIENTS: dict[tuple, Any] = {}
+_CLIENTS_LOCK = threading.Lock()
+def _groq_client(api_key: str):
+    # One SDK client per key for the life of the process, so calls reuse its HTTPS connection pool
+    # instead of paying a fresh TLS handshake each time. Keyed on the class too, so a patched SDK gets its own.
+    key = (groq.Groq, api_key)
+    with _CLIENTS_LOCK:
+        if key not in _CLIENTS:
+            _CLIENTS[key] = groq.Groq(api_key=api_key)
+        return _CLIENTS[key]
 def _call_groq(messages: list[dict], *, api_key: str, temperature: float, max_output_tokens: int) -> LLMResponse:
     # Makes the actual Groq call and flags a truncated answer instead of letting it break JSON parsing later.
-    client = groq.Groq(api_key=api_key)
+    client = _groq_client(api_key)
     try:
         response = client.chat.completions.create(
             model=settings.GROQ_MODEL,

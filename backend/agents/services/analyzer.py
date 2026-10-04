@@ -6,7 +6,7 @@ import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from .common import track_run
+from .common import list_repo_files, track_run
 # Dependencies are installed here inside the clone; dot-prefixed so pytest and the planner's tree skip it.
 DEPS_DIR = ".agent_swarm"
 PY_DEPS_DIR = f"{DEPS_DIR}/pydeps"
@@ -87,16 +87,7 @@ def run_analyzer(ctx) -> ProjectProfile:
         return profile
 def _list_files(root: Path) -> list[str]:
     # Repo-relative file paths, skipping dependency and build directories, capped for huge repos.
-    out: list[str] = []
-    for path in root.rglob("*"):
-        rel = path.relative_to(root)
-        if any(part in SKIP_DIRS for part in rel.parts):
-            continue
-        if path.is_file():
-            out.append(str(rel).replace("\\", "/"))
-            if len(out) >= MAX_SCAN_FILES:
-                break
-    return out
+    return list_repo_files(str(root), SKIP_DIRS, MAX_SCAN_FILES)
 def _detect_node(root: Path, profile: ProjectProfile, names: set[str]) -> None:
     # Reads package.json scripts and lockfiles to choose install, build, test and lint commands.
     try:

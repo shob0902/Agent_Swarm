@@ -13,7 +13,7 @@ from ..services.analyzer import detect_project, run_analyzer
 from ..services.coder import apply_files, run_coder, summarize_changes
 from ..services.common import track_run
 from ..services.planner import run_planner
-from ..services.repo import RepoCloneError, checkout_commit, cleanup_clone, clone_repo, head_info
+from ..services.repo import RepoCloneError, checkout_commit, cleanup_clone, clone_repo, head_info, reset_tracked_files
 from ..services.reviewer import run_reviewer
 from ..services.tester import TestResult, run_tester
 from .context import PipelineContext
@@ -91,8 +91,7 @@ def _run_stages(ctx: PipelineContext, resume: str = "") -> dict:
         ctx.checkpoint = {}
         base = head_info(ctx.local_path)
         ctx.base_branch, ctx.base_sha = base.branch, base.sha
-        _update(ctx, base_branch=base.branch)
-        _save_checkpoint(ctx, base_branch=base.branch, base_sha=base.sha)
+        _save_checkpoint(ctx, {"base_branch": base.branch}, base_branch=base.branch, base_sha=base.sha)
     if resume:
         # Deterministic and cheap, so it's recomputed rather than stored; no new trace entry on a resume.
         ctx.profile = detect_project(ctx.local_path)
@@ -100,8 +99,7 @@ def _run_stages(ctx: PipelineContext, resume: str = "") -> dict:
         _stage(ctx, "analyzing", "analyzer", run_analyzer, ctx)
     if resume in ("", "planner") or not ctx.checkpoint.get("plan"):
         plan = _stage(ctx, "planning", "planner", run_planner, ctx)
-        _update(ctx, plan=plan)
-        _save_checkpoint(ctx, plan=plan, changes=None, changed_files=None, modes=None, test=None, review=None, feedback=None)
+        _save_checkpoint(ctx, {"plan": plan}, plan=plan, changes=None, changed_files=None, modes=None, test=None, review=None, feedback=None)
         resume = ""
     else:
         plan = ctx.checkpoint["plan"]
@@ -152,24 +150,25 @@ def _code_test_review(
                     coder_result = _stage(ctx, "coding", "coder", run_coder, ctx, plan, feedback, coder_runs, sorted(touched))
                     touched.update(coder_result["files"])
                     coder_runs += 1
-                    _update(ctx, retry_count=coder_runs - 1)
-                    _checkpoint_code(ctx, touched, feedback)
-                _update(ctx, test_status="pending")
-                test_result = _stage(ctx, "testing", "tester", run_tester, ctx, sorted(touched), max(coder_runs - 1, 0))
-                _update(ctx, test_status=test_result.status, test_results=test_result.as_dict(include_logs=False))
+                    _checkpoint_code(ctx, touched, feedback, retry_count=coder_runs - 1)
+                test_result = _stage(ctx, "testing", "tester", run_tester, ctx, sorted(touched), max(coder_runs - 1, 0),
+                                     fields={"test_status": "pending"})
+                _restore_coder_output(ctx)
+                test_results = test_result.as_dict(include_logs=False)
                 if not test_result.passed:
                     feedback = "The previous attempt failed validation. Fix exactly these failures:\n" + test_result.output
-                _save_checkpoint(ctx, test={**test_result.as_dict(include_logs=False), "passed": test_result.passed},
+                _save_checkpoint(ctx, {"test_status": test_result.status, "test_results": test_results},
+                                 test={**test_results, "passed": test_result.passed},
                                  feedback=None if test_result.passed else feedback)
                 if test_result.passed:
                     break
             else:
                 raise StageFailed("tester", f"Validation still failing after {max_attempts} Coder attempt(s) in review cycle {cycle + 1}")
         changes = summarize_changes(ctx.local_path, sorted(touched))
-        _update(ctx, review_status="pending")
-        review = _stage(ctx, "review", "reviewer", run_reviewer, ctx, plan, changes, test_result, cycle)
-        _update(ctx, review_status="approved" if review["approved"] else "rejected", review_result=review)
-        _save_checkpoint(ctx, review=review, retry_count=max(coder_runs - 1, 0), review_cycles=cycle)
+        review = _stage(ctx, "review", "reviewer", run_reviewer, ctx, plan, changes, test_result, cycle,
+                        fields={"review_status": "pending"})
+        _save_checkpoint(ctx, {"review_status": "approved" if review["approved"] else "rejected", "review_result": review},
+                         review=review, retry_count=max(coder_runs - 1, 0), review_cycles=cycle)
         if review["approved"]:
             return ValidatedChange(changes, test_result, review, max(coder_runs - 1, 0), cycle)
         last_issues = review.get("issues") or []
@@ -201,11 +200,12 @@ def _review_feedback(issues: list[str]) -> str:
         "The Reviewer rejected the previous implementation. Address every issue below while keeping "
         "the validation checks passing:\n" + "\n".join(f"- {i}" for i in issues or ["(no specific issues given)"])
     )
-def _checkpoint_code(ctx: PipelineContext, touched: set[str], feedback: str | None) -> None:
+def _checkpoint_code(ctx: PipelineContext, touched: set[str], feedback: str | None, **task_fields) -> None:
     # Saves the cumulative code after a Coder run; any earlier test/review no longer applies to it.
     summary = summarize_changes(ctx.local_path, sorted(touched))
     _save_checkpoint(
         ctx,
+        task_fields,
         changes=summary["contents"],
         changed_files=summary["changed_files"],
         modes=summary["modes"],
@@ -213,14 +213,26 @@ def _checkpoint_code(ctx: PipelineContext, touched: set[str], feedback: str | No
         test=None,
         review=None,
     )
-def _save_checkpoint(ctx: PipelineContext, **fields) -> None:
-    # Merges fields into the checkpoint (None removes a key) and persists it.
+def _restore_coder_output(ctx: PipelineContext) -> None:
+    # The sandbox mounts the clone read-write, so a test run can rewrite source files. Put the tree back to
+    # the base commit plus exactly what the Coder wrote, so nothing a test changed is reviewed, committed
+    # or shown to the next Coder attempt.
+    try:
+        reset_tracked_files(ctx.local_path)
+        changes = ctx.checkpoint.get("changes") or {}
+        if changes:
+            apply_files(ctx.local_path, [{"path": p, "content": c} for p, c in changes.items()])
+    except RepoCloneError as exc:
+        raise StageFailed("tester", str(exc)) from exc
+def _save_checkpoint(ctx: PipelineContext, task_fields: dict | None = None, **fields) -> None:
+    # Merges fields into the checkpoint (None removes a key) and persists it together with any task_fields
+    # in one write -- on GitHub Actions every write is an HTTP round-trip to the API.
     for key, value in fields.items():
         if value is None:
             ctx.checkpoint.pop(key, None)
         else:
             ctx.checkpoint[key] = value
-    _update(ctx, checkpoint=ctx.checkpoint)
+    _update(ctx, checkpoint=ctx.checkpoint, **(task_fields or {}))
 def _validated_from_checkpoint(cp: dict) -> ValidatedChange:
     # The approved result as saved by an earlier run, for a PR-only retry.
     changes = {
@@ -294,10 +306,10 @@ def _publish(ctx: PipelineContext, plan: dict, validated: ValidatedChange) -> di
         pr_error="; ".join(result.warnings),
     )
     return asdict(result)
-def _stage(ctx: PipelineContext, status: str, agent: str, fn, *args):
-    # Marks the stage as current, runs it, and converts any exception into StageFailed.
+def _stage(ctx: PipelineContext, status: str, agent: str, fn, *args, fields: dict | None = None):
+    # Marks the stage as current (with any extra task fields in the same write), runs it, and converts any exception into StageFailed.
     ctx.extra["stage"] = agent
-    _update(ctx, status=status, current_agent=agent)
+    _update(ctx, status=status, current_agent=agent, **(fields or {}))
     try:
         return fn(*args)
     except StageFailed:
