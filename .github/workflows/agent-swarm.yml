@@ -53,13 +53,38 @@ jobs:
             exit 1
           fi
 
+      # Fail in seconds, by name, if a secret is missing -- values are never printed.
+      - name: Check required secrets
+        working-directory: .
+        env:
+          AGENT_SWARM_API_URL: ${{ secrets.AGENT_SWARM_API_URL }}
+          RUNNER_SHARED_SECRET: ${{ secrets.RUNNER_SHARED_SECRET }}
+          AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          GROQ_API_KEY_PLANNER: ${{ secrets.GROQ_API_KEY_PLANNER }}
+          GROQ_API_KEY_CODER_A: ${{ secrets.GROQ_API_KEY_CODER_A }}
+          GROQ_API_KEY_CODER_B: ${{ secrets.GROQ_API_KEY_CODER_B }}
+          GROQ_API_KEY_REVIEWER: ${{ secrets.GROQ_API_KEY_REVIEWER }}
+        run: |
+          missing=0
+          for name in AGENT_SWARM_API_URL RUNNER_SHARED_SECRET AGENT_GITHUB_TOKEN GROQ_API_KEY_PLANNER GROQ_API_KEY_CODER_A GROQ_API_KEY_CODER_B GROQ_API_KEY_REVIEWER; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing secret::Add the repository secret $name (Settings -> Secrets and variables -> Actions)."
+              missing=1
+            fi
+          done
+          if [ -n "$AGENT_SWARM_API_URL" ] && ! [[ "$AGENT_SWARM_API_URL" =~ ^https?://[^/]+/api/?$ ]]; then
+            echo "::error title=Bad AGENT_SWARM_API_URL::It must be the API base ending in /api, e.g. https://your-service.onrender.com/api"
+            missing=1
+          fi
+          exit $missing
+
       - name: Check out Agent Swarm
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -67,6 +92,13 @@ jobs:
 
       - name: Install backend dependencies
         run: pip install -r requirements.txt
+
+      # Proves the runner can reach the API and that RUNNER_SHARED_SECRET matches the backend's, before any work.
+      - name: Check connection to the Agent Swarm API
+        env:
+          AGENT_SWARM_API_URL: ${{ secrets.AGENT_SWARM_API_URL }}
+          RUNNER_SHARED_SECRET: ${{ secrets.RUNNER_SHARED_SECRET }}
+        run: python manage.py run_agent_task --task-id "$TASK_ID" --remote --check
 
       - name: Build sandbox image
         run: docker build -t agent-swarm-sandbox:latest -f docker/sandbox.Dockerfile .

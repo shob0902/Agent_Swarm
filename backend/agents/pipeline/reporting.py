@@ -124,14 +124,25 @@ class HttpReporter(Reporter):
             else:
                 if response.status_code < 500:
                     if response.status_code >= 400:
-                        raise ReporterError(f"{method} {path} -> {response.status_code}: {response.text[:300]}")
+                        hint = _HTTP_HINTS.get(response.status_code, "")
+                        raise ReporterError(f"{method} {url} -> {response.status_code}: {response.text[:200]}{hint}")
                     return response.json() if response.content else None
                 last_error = f"HTTP {response.status_code}"
             if attempt < self.MAX_ATTEMPTS - 1:
                 delay = min(2 ** (attempt + 1), 30)
                 logger.warning("Runner API %s %s failed (%s); retrying in %ss", method, path, last_error, delay)
                 self._sleep(delay)
-        raise ReporterError(f"{method} {path} failed after {self.MAX_ATTEMPTS} attempts: {last_error}")
+        raise ReporterError(
+            f"{method} {url} failed after {self.MAX_ATTEMPTS} attempts: {last_error}. "
+            "Check that AGENT_SWARM_API_URL is the public URL of the backend (ending in /api) and that the backend is running."
+        )
+# What each runner-API status code usually means for the deployment, appended to the error.
+_HTTP_HINTS = {
+    401: " -- the runner request was not authenticated; RUNNER_SHARED_SECRET is probably empty or wrong.",
+    403: " -- RUNNER_SHARED_SECRET in GitHub Actions does not match RUNNER_SHARED_SECRET on the backend (or the backend has none set).",
+    404: " -- the task or URL was not found; AGENT_SWARM_API_URL must be the API base ending in /api, and the task must exist in that backend's database.",
+    409: " -- the task already finished; nothing to do.",
+}
 def _jsonable(value: Any) -> Any:
     # Round-trips through JSON so datetimes and SDK objects become plain, storable values.
     return json.loads(json.dumps(value, default=_default))

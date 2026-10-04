@@ -164,3 +164,33 @@ class FakeReporterSanity(SimpleTestCase):
         reporter = FakeReporter()
         reporter.update_task(status="coding")
         self.assertEqual(reporter.statuses(), ["coding"])
+class RunnerDiagnosticsTests(SimpleTestCase):
+    # Misconfigured runners get errors that name the setting to fix.
+    def _reporter(self, status_code):
+        # Reporter whose API answers status_code once.
+        session = mock.Mock()
+        response = mock.Mock(status_code=status_code, text='{"detail": "x"}', content=b"x")
+        session.request.return_value = response
+        return HttpReporter(7, "https://api.example.com/api", SECRET, session=session, sleep=lambda s: None)
+    def test_403_blames_mismatched_secret(self):
+        # The usual cause of a 403 is the two RUNNER_SHARED_SECRET values differing.
+        with self.assertRaisesMessage(ReporterError, "RUNNER_SHARED_SECRET in GitHub Actions does not match"):
+            self._reporter(403).fetch_task()
+    def test_404_points_at_api_url(self):
+        # A wrong base URL usually shows up as a 404.
+        with self.assertRaisesMessage(ReporterError, "AGENT_SWARM_API_URL must be the API base ending in /api"):
+            self._reporter(404).fetch_task()
+    @override_settings(AGENT_SWARM_API_URL="https://api.example.com/api", RUNNER_SHARED_SECRET=SECRET)
+    def test_check_command_reports_ok_and_annotates_failures(self):
+        # --check only fetches the task; failures become a GitHub Actions ::error:: annotation.
+        from io import StringIO
+        from django.core.management import CommandError, call_command
+        with mock.patch.object(HttpReporter, "fetch_task", return_value={"id": 7, "status": "queued", "resume_from": ""}):
+            out = StringIO()
+            call_command("run_agent_task", "--task-id", "7", "--remote", "--check", stdout=out)
+        self.assertIn("Runner API OK: task 7 is 'queued'", out.getvalue())
+        with mock.patch.object(HttpReporter, "fetch_task", side_effect=ReporterError("403 -- secrets differ")), \
+                mock.patch.dict("os.environ", {"GITHUB_ACTIONS": "true"}), \
+                mock.patch("builtins.print") as printed, self.assertRaises(CommandError):
+            call_command("run_agent_task", "--task-id", "7", "--remote", "--check")
+        self.assertTrue(any("::error title=Runner API::" in str(c) for c in printed.call_args_list))
