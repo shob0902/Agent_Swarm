@@ -36,6 +36,8 @@ export const signup = (email, password1, password2) =>
   client.post('/auth/registration/', { email, password1, password2 }).then((r) => r.data)
 // Ends the session and clears the auth cookies.
 export const logout = () => client.post('/auth/logout/').then((r) => r.data)
+// Public Google/GitHub sign-in config (client ids, authorize URLs, enabled flags) served by the backend.
+export const getOAuthProviders = () => client.get('/auth/providers/').then((r) => r.data)
 // Exchanges an OAuth authorization code for a session; the redirect URI must match the one used to start the flow.
 export const socialLogin = (provider, code, redirectUri) =>
   client.post(`/auth/${provider}/`, { code, redirect_uri: redirectUri }).then((r) => r.data)
@@ -55,4 +57,9 @@ export const favoriteTask = (id) => client.post(`/tasks/${id}/favorite/`).then((
 export const archiveTask = (id) => client.post(`/tasks/${id}/archive/`).then((r) => r.data)
 // Permanently deletes a task.
 export const deleteTask = (id) => client.delete(`/tasks/${id}/`)
+// Re-runs a failed task from the stage that failed, or from scratch when fromStart is true.
+export const retryTask = (id, fromStart = false) =>
+  client.post(`/tasks/${id}/retry/`, fromStart ? { from_start: true } : {}).then((r) => r.data)
+// Re-reads the task's pull request from GitHub (open / merged / closed).
+export const refreshPullRequest = (id) => client.post(`/tasks/${id}/refresh_pr/`).then((r) => r.data)
 export default client

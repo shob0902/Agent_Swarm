@@ -4,10 +4,10 @@ from .models import AgentRun, Task
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     # Task list view with status filters and a truncated description column.
-    list_display = ("id", "user", "status", "short_description", "github_url", "is_favorite", "is_archived", "created_at", "updated_at")
-    list_filter = ("status", "is_favorite", "is_archived")
+    list_display = ("id", "user", "status", "current_agent", "short_description", "github_url", "pr_url", "executor", "created_at", "updated_at")
+    list_filter = ("status", "executor", "test_status", "review_status", "pr_state", "is_favorite", "is_archived")
     search_fields = ("description", "title", "github_url", "user__email")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "dispatched_at", "started_at", "completed_at")
     @admin.display(description="description")
     def short_description(self, obj):
         # Trims the description so the list column stays readable.

@@ -10,13 +10,14 @@ from .. import llm_client
 from ..prompts import load_prompt
 from . import key_pool
 from .common import AgentRunFailed, parse_strict_json, track_run
+from .safety import is_blocked_path
 logger = logging.getLogger(__name__)
 MAX_FILE_CHARS = 4000
 MAX_TOTAL_CONTEXT_CHARS = 20000
 FALLBACK_TEXT_SUFFIXES = {
     ".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".txt", ".md", ".toml", ".cfg", ".ini", ".yml", ".yaml",
 }
-IGNORE_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "env", "dist", "build"}
+IGNORE_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "env", "dist", "build", ".agent_swarm"}
 _PATH_TOKEN_RE = re.compile(r"[\w./-]+\.\w+")
 CODER_PROVIDER = "groq"
 _CODER_KEY_POOL: key_pool.KeyPool | None = None
@@ -35,17 +36,16 @@ def _coder_key_pool() -> key_pool.KeyPool:
         return _CODER_KEY_POOL
 _CODER_MAX_OUTPUT_TOKENS = 3000
 MAX_MALFORMED_RETRIES = 2
-def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> dict:
+MAX_FEEDBACK_CHARS = 3000
+def run_coder(ctx, plan: dict, feedback: str | None, attempt: int, previously_changed: list[str] | None = None) -> dict:
     # Picks the relevant files, asks the model to rewrite them, writes them out and returns the diff.
-    relevant = _select_relevant_files(task.local_path, plan)
-    file_contents = _format_file_contents(task.local_path, relevant)
-    retry_context = (
-        f"\nPrior test run failed with this output -- fix this specifically:\n{prior_test_output[:3000]}\n"
-        if prior_test_output
-        else ""
-    )
+    # feedback is failing test/build output or a Reviewer rejection, already phrased by the pipeline.
+    relevant = sorted(set(_select_relevant_files(ctx.local_path, plan)) | set(previously_changed or []))
+    file_contents = _format_file_contents(ctx.local_path, relevant)
+    retry_context = f"\n{feedback[:MAX_FEEDBACK_CHARS]}\n" if feedback else ""
     prompt = load_prompt(
         "coder_prompt",
+        task_description=ctx.description,
         plan_json=_plan_json(plan),
         file_contents=file_contents,
         retry_context=retry_context,
@@ -54,20 +54,20 @@ def run_coder(task, plan: dict, prior_test_output: str | None, attempt: int) -> 
         "plan": plan,
         "relevant_files": relevant,
         "attempt": attempt,
-        "prior_test_output": prior_test_output,
+        "feedback": feedback,
     }
     messages = [
         {"role": "system", "content": "You output strict JSON only, never prose or markdown fences."},
         {"role": "user", "content": prompt},
     ]
-    with track_run(task, agent_type="coder", provider=CODER_PROVIDER, input_context=input_context, retry_count=attempt) as run:
+    with track_run(ctx, agent_type="coder", provider=CODER_PROVIDER, input_context=input_context, retry_count=attempt) as run:
         try:
             files, response, served_by, tried, malformed = _request_files(messages, attempt)
         except _CoderKeysExhausted as exc:
             run.output = {"error": str(exc), "keys_tried": exc.attempted}
             raise
-        diff, file_diffs = _apply_files_and_diff(task.local_path, files)
-        result = {"diff": diff, "files": [f["path"] for f in files], "file_diffs": file_diffs}
+        diff, file_diffs = _apply_files_and_diff(ctx.local_path, files)
+        result = {"diff": diff, "files": [f["path"] for f in file_diffs], "file_diffs": file_diffs}
         run.output = {
             "raw_response": response.text,
             "raw": response.raw,
@@ -245,17 +245,55 @@ def _apply_files_and_diff(repo_path: str, files: list[dict]) -> str:
         repo = Repo(repo_path)
     except InvalidGitRepositoryError as exc:
         raise AgentRunFailed(f"repo_path {repo_path!r} is not a git repository: {exc}") from exc
-    if written:
-        try:
-            repo.git.add("-N", *written)
-        except Exception:  # noqa: BLE001
-            pass
-    diff_text = repo.git.diff("--no-color", *written) if written else ""
+    with repo:
+        if written:
+            try:
+                repo.git.add("-N", *written)
+            except Exception:  # noqa: BLE001
+                pass
+        diff_text = repo.git.diff("--no-color", *written) if written else ""
     return diff_text, file_diffs
+def apply_files(repo_path: str, files: list[dict]) -> None:
+    # Writes saved {path, content} entries back into a clone (used when a retry resumes after the Coder).
+    _apply_files_and_diff(repo_path, files)
 def _safe_relative_path(root: Path, raw_path: str) -> Path:
     # Blocks any path that would escape the repo root, such as one using '..'.
     candidate = (root / raw_path).resolve()
     try:
-        return candidate.relative_to(root)
+        rel = candidate.relative_to(root)
     except ValueError as exc:
         raise AgentRunFailed(f"Coder attempted to write outside the repo root: {raw_path!r}") from exc
+    if is_blocked_path(str(rel)):
+        raise AgentRunFailed(f"Coder attempted to write a protected path (secrets, CI or .git): {raw_path!r}")
+    return rel
+def summarize_changes(repo_path: str, paths: list[str]) -> dict:
+    # Cumulative view of every file touched across attempts, against the original commit:
+    # the git diff, per-file before/after, final contents, and the original git modes.
+    with Repo(repo_path) as repo:
+        return _summarize_changes(repo, repo_path, paths)
+def _summarize_changes(repo: Repo, repo_path: str, paths: list[str]) -> dict:
+    # Body of summarize_changes, split out so the Repo handle is always closed (Windows locks the clone otherwise).
+    changed: list[dict] = []
+    file_diffs: list[dict] = []
+    contents: dict[str, str] = {}
+    modes: dict[str, str] = {}
+    for rel in sorted(set(paths)):
+        abs_path = Path(repo_path) / rel
+        if not abs_path.is_file():
+            continue
+        new_content = abs_path.read_text(encoding="utf-8", errors="replace")
+        tree_entry = repo.git.ls_tree("HEAD", "--", rel).split()
+        if tree_entry:
+            # Normalise line endings the same way read_text does, so CRLF blobs don't read as changed.
+            old_content = repo.git.show(f"HEAD:{rel}", strip_newline_in_stdout=False).replace("\r\n", "\n")
+            if old_content == new_content:
+                continue
+            change, mode = "modified", tree_entry[0]
+        else:
+            old_content, change, mode = "", "added", "100644"
+        changed.append({"path": rel, "change": change})
+        contents[rel] = new_content
+        modes[rel] = mode
+        file_diffs.append({"path": rel, "old_content": old_content, "new_content": new_content})
+    diff = repo.git.diff("--no-color", "HEAD", "--", *contents) if contents else ""
+    return {"diff": diff, "changed_files": changed, "file_diffs": file_diffs, "contents": contents, "modes": modes}

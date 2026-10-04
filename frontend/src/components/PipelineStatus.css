@@ -1,0 +1,150 @@
+/* Pipeline checklist, facts grid and pull-request call to action, down to phone width. */
+.pipeline-status {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pipeline-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pipeline-status-head h2 {
+  margin: 0;
+}
+.pipeline-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+.pipeline-step-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--base);
+  box-shadow: 2px 2px 4px var(--shadow-dark), -2px -2px 4px var(--shadow-light);
+}
+.pipeline-step-done {
+  color: var(--text-primary);
+}
+.pipeline-step-done .pipeline-step-icon {
+  color: var(--success);
+}
+.pipeline-step-active {
+  color: var(--info);
+  font-weight: 600;
+}
+.pipeline-step-failed {
+  color: var(--danger);
+  font-weight: 600;
+}
+.pipeline-step-failed .pipeline-step-icon {
+  color: var(--danger);
+}
+.pipeline-pr-cta {
+  align-self: flex-start;
+  padding: 12px 22px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+.pipeline-retry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pipeline-retry-primary {
+  padding: 10px 18px;
+  min-height: 44px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.pipeline-retry-secondary {
+  padding: 10px 14px;
+  min-height: 44px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pipeline-error {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.pipeline-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.pipeline-facts dt {
+  color: var(--text-muted);
+  padding-top: 4px;
+}
+.pipeline-facts dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pipeline-facts code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pipeline-fact-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.pipeline-refresh {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pipeline-review-list {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pipeline-review-list ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+@media (max-width: 480px) {
+  .pipeline-status {
+    padding: 18px 16px;
+  }
+  .pipeline-facts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .pipeline-facts dd {
+    margin-bottom: 8px;
+  }
+}

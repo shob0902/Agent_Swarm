@@ -72,6 +72,7 @@ def _call_groq(messages: list[dict], *, api_key: str, temperature: float, max_ou
             messages=messages,
             temperature=temperature,
             max_tokens=max_output_tokens,
+            **_reasoning_kwargs(settings.GROQ_MODEL),
         )
     except groq.RateLimitError as exc:
         raise _RateLimitError(str(exc)) from exc
@@ -84,6 +85,14 @@ def _call_groq(messages: list[dict], *, api_key: str, temperature: float, max_ou
             "call if the requested content is legitimately long"
         )
     return LLMResponse(text=choice.message.content, provider="groq", model=settings.GROQ_MODEL, raw=_safe_raw(response))
+# Groq models that accept reasoning_effort; sending it to any other model is a 400.
+_REASONING_MODEL_PREFIXES = ("openai/gpt-oss",)
+def _reasoning_kwargs(model: str) -> dict:
+    # Caps hidden reasoning on gpt-oss models so it doesn't crowd the answer out of max_tokens.
+    effort = settings.GROQ_REASONING_EFFORT
+    if effort and model.startswith(_REASONING_MODEL_PREFIXES):
+        return {"reasoning_effort": effort}
+    return {}
 _PROVIDERS = {"groq": _call_groq}
 def _safe_raw(response: Any) -> Any:
     # Turns the raw SDK response into something JSON-safe so it can be stored on the AgentRun row.

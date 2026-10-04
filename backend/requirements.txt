@@ -1,13 +1,14 @@
 Django==5.0.6
 djangorestframework==3.15.2
 django-cors-headers==4.4.0
-celery==5.3.4
-redis==5.0.7
 django-environ==0.11.2
 docker==7.1.0
 groq==1.6.0
 gitpython==3.1.43
+requests==2.32.3
 django-allauth==65.19.0
 dj-rest-auth==7.2.0
 djangorestframework-simplejwt==5.5.1
 gunicorn==23.0.0
+whitenoise==6.7.0
+psycopg[binary]==3.2.3

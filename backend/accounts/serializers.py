@@ -1,5 +1,6 @@
-# DRF serializers for reading user details and for email/password registration.
+# DRF serializers for reading user details, email/password registration, and the OAuth code exchange.
 from dj_rest_auth.registration.serializers import RegisterSerializer as BaseRegisterSerializer
+from dj_rest_auth.registration.serializers import SocialLoginSerializer
 from rest_framework import serializers
 from .models import User
 class UserSerializer(serializers.ModelSerializer):
@@ -25,3 +26,14 @@ class RegisterSerializer(BaseRegisterSerializer):
             "password1": self.validated_data.get("password1", ""),
             "email": self.validated_data.get("email", ""),
         }
+class CodeOnlySocialLoginSerializer(SocialLoginSerializer):
+    # Accepts only an authorization code. The base class would also accept a raw access_token/id_token,
+    # which lets a token issued to some *other* app be replayed here to sign in.
+    access_token = None
+    id_token = None
+    code = serializers.CharField(required=True, allow_blank=False, max_length=2048)
+    redirect_uri = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    def validate(self, attrs):
+        # Drops anything but the code before handing off to the dj-rest-auth/allauth exchange.
+        attrs = {"code": attrs["code"]}
+        return super().validate(attrs)

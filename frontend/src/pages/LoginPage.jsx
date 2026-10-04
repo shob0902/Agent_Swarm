@@ -13,7 +13,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
-  const redirectTo = location.state?.from?.pathname || '/dashboard'
+  const from = location.state?.from
+  const redirectTo = from?.pathname ? `${from.pathname}${from.search || ''}` : '/dashboard'
   const handleSubmit = async (e) => {
     // Attempts the login and shows the server's message if the credentials are rejected.
     e.preventDefault()
@@ -33,7 +34,7 @@ export default function LoginPage() {
       <div className="neu-raised auth-card anim-fade-up">
         <span className="auth-kicker">Agent Swarm</span>
         <h1>Sign in</h1>
-        <OAuthButtons />
+        <OAuthButtons returnTo={redirectTo} />
         <div className="auth-divider">or</div>
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="auth-field">

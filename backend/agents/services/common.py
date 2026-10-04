@@ -6,7 +6,6 @@ import re
 import time
 from contextlib import contextmanager
 from typing import Any
-from ..models import AgentRun
 logger = logging.getLogger(__name__)
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 class AgentRunFailed(Exception):
@@ -40,29 +39,40 @@ def _first_json_start(text: str) -> int | None:
     # Finds the index of the first brace or bracket, where a JSON value could start.
     candidates = [i for i in (text.find("{"), text.find("[")) if i != -1]
     return min(candidates) if candidates else None
+class RunHandle:
+    # The object an agent sees inside track_run: it sets .output (and may change .provider) before the block exits.
+    def __init__(self, run_id: Any, provider: str):
+        # Starts with an empty output that the agent fills in.
+        self.id = run_id
+        self.provider = provider
+        self.output: dict = {}
 @contextmanager
-def track_run(task, agent_type: str, provider: str, input_context: dict, retry_count: int = 0):
-    # Creates the AgentRun row up front and always writes back status, duration and output on the way out.
-    run = AgentRun.objects.create(
-        task=task,
-        agent_type=agent_type,
-        provider=provider,
-        input_context=input_context,
-        output={},
-        status="pending",
-        retry_count=retry_count,
+def track_run(ctx, agent_type: str, provider: str, input_context: dict, retry_count: int = 0):
+    # Creates the AgentRun up front (via the context's reporter) and always writes back status, duration and output on the way out.
+    reporter = ctx.reporter
+    run = RunHandle(
+        reporter.start_run(agent_type=agent_type, provider=provider, input_context=input_context, retry_count=retry_count),
+        provider,
     )
     started = time.monotonic()
     try:
         yield run
     except Exception as exc:
-        run.status = "failure"
         if not run.output:
             run.output = {"error": str(exc)}
-        run.duration_ms = int((time.monotonic() - started) * 1000)
-        run.save(update_fields=["status", "output", "duration_ms", "provider"])
+        _finish(reporter, run, "failure", started)
         raise
     else:
-        run.status = "success"
-        run.duration_ms = int((time.monotonic() - started) * 1000)
-        run.save(update_fields=["status", "output", "duration_ms", "provider"])
+        _finish(reporter, run, "success", started)
+def _finish(reporter, run: RunHandle, status: str, started: float) -> None:
+    # Writes the outcome, logging rather than raising so a reporting hiccup never masks the agent's own error.
+    try:
+        reporter.finish_run(
+            run.id,
+            status=status,
+            output=run.output,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            provider=run.provider,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not record the outcome of run %s", run.id)

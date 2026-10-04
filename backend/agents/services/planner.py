@@ -7,7 +7,7 @@ from ..prompts import load_prompt
 from .common import AgentRunFailed, parse_strict_json, track_run
 IGNORE_DIRS = {
     ".git", "node_modules", "__pycache__", "venv", ".venv", "env",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build", "egg-info",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build", "egg-info", ".agent_swarm",
 }
 MAX_TREE_ENTRIES = 400
 MAX_PLAN_OUTPUT_TOKENS = 1500
@@ -26,12 +26,13 @@ def build_file_tree(repo_path: str) -> str:
             lines.append("... (truncated)")
             break
     return "\n".join(lines) if lines else "(empty repository)"
-def run_planner(task) -> dict:
-    # Asks the model for a plan and returns it as a dict of steps, recording the run as it goes.
-    file_tree = build_file_tree(task.local_path)
-    prompt = load_prompt("planner_prompt", task_description=task.description, file_tree=file_tree)
-    input_context = {"task_description": task.description, "file_tree": file_tree}
-    with track_run(task, agent_type="planner", provider="groq", input_context=input_context) as run:
+def run_planner(ctx) -> dict:
+    # Asks the model for a plan and returns it as a dict of title, summary and steps, recording the run as it goes.
+    file_tree = build_file_tree(ctx.local_path)
+    stack_summary = ctx.profile.summary() if ctx.profile else "(not analysed)"
+    prompt = load_prompt("planner_prompt", task_description=ctx.description, stack_summary=stack_summary, file_tree=file_tree)
+    input_context = {"task_description": ctx.description, "stack_summary": stack_summary, "file_tree": file_tree}
+    with track_run(ctx, agent_type="planner", provider="groq", input_context=input_context) as run:
         response = llm_client.call_llm(
             "groq",
             [
@@ -51,4 +52,9 @@ def _validate_plan(text: str) -> dict:
         raise AgentRunFailed(f"Planner JSON missing a non-empty 'steps' list. Raw output: {text[:500]!r}")
     if not all(isinstance(s, str) for s in data["steps"]):
         raise AgentRunFailed(f"Planner 'steps' must all be strings. Raw output: {text[:500]!r}")
-    return data
+    # title/summary feed the PR; they're optional so a terse model answer still yields a usable plan.
+    return {
+        "title": data["title"].strip() if isinstance(data.get("title"), str) else "",
+        "summary": data["summary"].strip() if isinstance(data.get("summary"), str) else "",
+        "steps": data["steps"],
+    }

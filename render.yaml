@@ -1,0 +1,54 @@
+# Render Blueprint for the Django API (free web service). The agents do NOT run here --
+# they run on GitHub Actions -- so the free instance only serves the API and the admin.
+# Database: point DATABASE_URL at a free Neon or Supabase Postgres (Render's own free
+# Postgres expires after 30 days). Frontend: deploy frontend/ to Vercel/Netlify/Cloudflare Pages.
+services:
+  - type: web
+    name: agent-swarm-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    # Free instances have no pre-deploy hook, so migrations run at start (they're idempotent).
+    startCommand: python manage.py migrate --noinput && gunicorn orchestrator.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /admin/login/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: PIPELINE_EXECUTOR
+        value: github_actions
+      - key: GITHUB_ACTIONS_WORKFLOW
+        value: agent-swarm.yml
+      - key: GITHUB_ACTIONS_REF
+        value: main
+      # Set these in the Render dashboard (sync: false = never stored in this file).
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: GITHUB_ACTIONS_REPO
+        sync: false
+      - key: GITHUB_DISPATCH_TOKEN
+        sync: false
+      - key: RUNNER_SHARED_SECRET
+        sync: false
+      - key: ALLOWED_REPO_OWNERS
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false

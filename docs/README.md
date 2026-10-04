@@ -1,5 +1,9 @@
 # Documentation source
 
+> **Note:** the PDF and `documentation.html` describe the earlier Celery + Redis
+> architecture. The current architecture (GitHub Actions executor, signed runner API,
+> automatic pull requests) is documented in the top-level [README](../README.md).
+
 `Agent_Swarm_Documentation.pdf` is generated from `documentation.html` (self-contained,
 references `assets/*.png`). To regenerate after editing the HTML:
 

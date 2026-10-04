@@ -1,31 +1,46 @@
 // The "Continue with Google / GitHub" buttons shown on the login and signup pages.
-import { isProviderConfigured, startOAuthLogin } from '../auth/oauth'
-export default function OAuthButtons() {
-  // Renders both provider buttons, disabling either one whose client ID isn't configured.
-  const googleReady = isProviderConfigured('google')
-  const githubReady = isProviderConfigured('github')
+import { useEffect, useState } from 'react'
+import { loadProviders, startOAuthLogin } from '../auth/oauth'
+const BUTTONS = [
+  { provider: 'google', label: 'Continue with Google', Icon: GoogleIcon },
+  { provider: 'github', label: 'Continue with GitHub', Icon: GitHubIcon },
+]
+export default function OAuthButtons({ returnTo = '/dashboard' }) {
+  // Loads the backend's provider config and renders one button per provider, disabled until it's configured server-side.
+  const [providers, setProviders] = useState(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [redirecting, setRedirecting] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    loadProviders()
+      .then((data) => { if (!cancelled) setProviders(data) })
+      .catch(() => { if (!cancelled) setLoadFailed(true) })
+    return () => { cancelled = true }
+  }, [])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <button
-        type="button"
-        className="neu-flat neu-pressable"
-        style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-        onClick={() => startOAuthLogin('google')}
-        disabled={!googleReady}
-        title={googleReady ? undefined : 'Not configured yet -- add GOOGLE_CLIENT_ID to the backend/frontend .env'}
-      >
-        <GoogleIcon /> Continue with Google
-      </button>
-      <button
-        type="button"
-        className="neu-flat neu-pressable"
-        style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-        onClick={() => startOAuthLogin('github')}
-        disabled={!githubReady}
-        title={githubReady ? undefined : 'Not configured yet -- add GITHUB_CLIENT_ID to the backend/frontend .env'}
-      >
-        <GitHubIcon /> Continue with GitHub
-      </button>
+      {BUTTONS.map(({ provider, label, Icon }) => {
+        const config = providers?.[provider]
+        const ready = Boolean(config?.enabled)
+        const hint = loadFailed
+          ? 'Could not reach the server'
+          : providers && !ready
+            ? `${config?.name || provider} sign-in is not configured on the server`
+            : undefined
+        return (
+          <button
+            key={provider}
+            type="button"
+            className="neu-flat neu-pressable"
+            style={{ padding: '10px 16px', minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+            onClick={() => { setRedirecting(provider); startOAuthLogin(config, provider, returnTo) }}
+            disabled={!ready || redirecting !== null}
+            title={hint}
+          >
+            <Icon /> {redirecting === provider ? 'Redirecting…' : label}
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -1,56 +1,115 @@
-// Live timeline of a task's agent runs, polled while the pipeline is still going, plus the final diff.
-import { useEffect, useRef, useState } from 'react'
-import { getTaskRuns } from '../api/client'
+// Live view of one task: pipeline status, the agent execution log, and the cumulative diff. Polls while the run is active.
+import { useEffect, useMemo, useState } from 'react'
+import { getTask } from '../api/client'
 import StatusBadge from './StatusBadge'
 import DiffViewer from './DiffViewer'
-const AGENT_LABEL = { planner: 'Planner', coder: 'Coder', tester: 'Tester', reviewer: 'Reviewer' }
+import PipelineStatus from './PipelineStatus'
+const AGENT_LABEL = {
+  analyzer: 'Repository Analysis',
+  planner: 'Planner',
+  coder: 'Coder',
+  tester: 'Tester',
+  reviewer: 'Reviewer',
+  github: 'GitHub PR',
+}
 const POLL_MS = 2000
-const ACTIVE_STATUSES = new Set(['pending', 'planning', 'coding', 'testing', 'review'])
 const KEY_SLOT_LABEL = { 'coder-a': 'key A', 'coder-b': 'key B' }
 function providerLabel(run) {
   // Builds the "via groq · key A" caption showing which key served the run.
   const slot = KEY_SLOT_LABEL[run.output?.key_slot]
   return slot ? `${run.provider} · ${slot}` : run.provider
 }
-export default function AgentTrace({ taskId, taskStatus, taskTitle, theme }) {
-  // Polls the runs while the task is active and renders each one as an expandable timeline entry.
-  const [runs, setRuns] = useState([])
+function runCaption(run) {
+  // One-line summary of a run's result shown under its name.
+  const out = run.output || {}
+  if (out.error) return out.error
+  if (run.agent_type === 'analyzer') return out.summary
+  if (run.agent_type === 'planner') return out.plan?.title || (out.plan?.steps ? `${out.plan.steps.length} steps` : '')
+  if (run.agent_type === 'coder') return out.files?.length ? `Changed ${out.files.join(', ')}` : ''
+  if (run.agent_type === 'tester') return out.summary
+  if (run.agent_type === 'reviewer') return out.summary || (out.approved ? 'Approved' : out.approved === false ? 'Changes requested' : '')
+  if (run.agent_type === 'github') return out.pr_url ? `Opened ${out.pr_url}` : ''
+  return ''
+}
+function cumulativeDiffs(runs) {
+  // Merges every successful Coder attempt: original content from the first touch, final content from the last.
+  const byPath = new Map()
+  for (const run of runs) {
+    if (run.agent_type !== 'coder' || run.status !== 'success') continue
+    for (const d of run.output?.file_diffs || []) {
+      const prev = byPath.get(d.path)
+      byPath.set(d.path, { path: d.path, old_content: prev ? prev.old_content : d.old_content, new_content: d.new_content })
+    }
+  }
+  return [...byPath.values()].filter((d) => d.old_content !== d.new_content)
+}
+export default function AgentTrace({ taskId, theme, onTaskChanged }) {
+  // Loads the task with its runs, keeps polling while it's active, and renders status, log and diff.
+  const [task, setTask] = useState(null)
   const [expanded, setExpanded] = useState(null)
-  const intervalRef = useRef(null)
+  const [loadError, setLoadError] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
-    if (!taskId) return
+    if (!taskId) {
+      setTask(null)
+      return undefined
+    }
     let cancelled = false
-    const fetchRuns = async () => {
+    let timer = null
+    const fetchTask = async () => {
       try {
-        const data = await getTaskRuns(taskId)
-        if (!cancelled) setRuns(data)
-      } catch {
+        const data = await getTask(taskId)
+        if (cancelled) return
+        setTask(data)
+        setLoadError(null)
+        onTaskChanged?.(data)
+        if (data.is_active) timer = setTimeout(fetchTask, POLL_MS)
+      } catch (err) {
+        if (cancelled) return
+        setLoadError(err?.response?.status === 404 ? 'Task not found.' : 'Could not load this task — retrying…')
+        if (err?.response?.status !== 404) timer = setTimeout(fetchTask, POLL_MS * 2)
       }
     }
-    fetchRuns()
-    clearInterval(intervalRef.current)
-    if (ACTIVE_STATUSES.has(taskStatus)) {
-      intervalRef.current = setInterval(fetchRuns, POLL_MS)
-    }
+    setTask((prev) => (prev?.id === taskId ? prev : null))
+    fetchTask()
     return () => {
       cancelled = true
-      clearInterval(intervalRef.current)
+      clearTimeout(timer)
     }
-  }, [taskId, taskStatus])
+    // onTaskChanged is intentionally not a dependency: a new callback identity must not restart polling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId, reloadKey])
+  const runs = useMemo(() => task?.runs || [], [task])
+  const fileDiffs = useMemo(() => cumulativeDiffs(runs), [runs])
   if (!taskId) {
     return (
       <div className="neu-raised" style={{ padding: 24 }}>
-        <p style={{ color: 'var(--text-muted)', margin: 0 }}>Select a task to see its agent trace.</p>
+        <p style={{ color: 'var(--text-muted)', margin: 0 }}>Select a task, or start a new one, to see its pipeline.</p>
       </div>
     )
   }
-  const lastSuccessfulCoderRun = [...runs].reverse().find((r) => r.agent_type === 'coder' && r.status === 'success')
-  const fileDiffs = lastSuccessfulCoderRun?.output?.file_diffs
+  if (!task) {
+    return (
+      <div className="neu-raised" style={{ padding: 24 }}>
+        <p style={{ color: loadError ? 'var(--danger)' : 'var(--text-muted)', margin: 0 }}>{loadError || 'Loading…'}</p>
+      </div>
+    )
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <PipelineStatus
+        task={task}
+        runs={runs}
+        onTaskChanged={(t) => { setTask((prev) => ({ ...prev, ...t })); onTaskChanged?.(t) }}
+        onRetried={(t) => { setTask((prev) => ({ ...prev, ...t })); onTaskChanged?.(t); setReloadKey((k) => k + 1) }}
+      />
       <div className="neu-raised" style={{ padding: 24 }}>
-        <h2 style={{ marginTop: 0 }}>Agent Trace — {taskTitle || `Task #${taskId}`}</h2>
-        {runs.length === 0 && <p style={{ color: 'var(--text-muted)' }}>Waiting for the pipeline to start…</p>}
+        <h2 style={{ marginTop: 0 }}>Agent Execution Log — {task.title || task.display_title || `Task #${taskId}`}</h2>
+        {runs.length === 0 && (
+          <p style={{ color: 'var(--text-muted)' }}>
+            {task.status === 'queued' ? 'Waiting for the runner to pick up the task…' : 'Waiting for the pipeline to start…'}
+          </p>
+        )}
         <div style={{ position: 'relative', paddingLeft: 24 }}>
           <div
             style={{
@@ -99,11 +158,16 @@ export default function AgentTrace({ taskId, taskStatus, taskTitle, theme }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {run.duration_ms != null && (
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{run.duration_ms} ms</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{(run.duration_ms / 1000).toFixed(1)} s</span>
                     )}
                     <StatusBadge status={run.status} />
                   </div>
                 </div>
+                {runCaption(run) && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                    {runCaption(run)}
+                  </div>
+                )}
                 {expanded === run.id && (
                   <pre
                     className="neu-inset"
@@ -128,9 +192,9 @@ export default function AgentTrace({ taskId, taskStatus, taskTitle, theme }) {
           ))}
         </div>
       </div>
-      {fileDiffs && (
+      {fileDiffs.length > 0 && (
         <div className="neu-raised anim-fade-up" style={{ padding: 24 }}>
-          <h2 style={{ marginTop: 0 }}>Diff</h2>
+          <h2 style={{ marginTop: 0 }}>Changes</h2>
           <DiffViewer fileDiffs={fileDiffs} theme={theme} />
         </div>
       )}

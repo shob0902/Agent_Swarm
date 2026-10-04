@@ -133,3 +133,13 @@
     transform: translateX(0);
   }
 }
+.history-item-pr {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  text-decoration: none;
+}
+.history-item-pr:hover {
+  text-decoration: underline;
+}

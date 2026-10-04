@@ -1,6 +1,6 @@
-// Main app screen: the new-task form, the task history sidebar and the live agent trace.
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+// Main app screen: the new-run form, the task history sidebar and the live pipeline view.
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { listTasks } from '../api/client'
 import TaskForm from '../components/TaskForm'
 import TaskHistorySidebar from '../components/TaskHistorySidebar'
@@ -8,9 +8,21 @@ import AgentTrace from '../components/AgentTrace'
 import UserMenu from '../components/UserMenu'
 const TASK_LIST_POLL_MS = 3000
 export default function DashboardPage({ theme, onToggleTheme }) {
-  // Polls the task list against the current search and filter, and tracks which task is selected.
+  // Polls the task list against the current search and filter; the selected task lives in ?task= so a refresh keeps it.
   const [tasks, setTasks] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedId = Number(searchParams.get('task')) || null
+  const setSelectedId = useCallback((idOrUpdater) => {
+    // Writes the selection into the URL (replace, so it doesn't spam history).
+    setSearchParams((prev) => {
+      const current = Number(prev.get('task')) || null
+      const id = typeof idOrUpdater === 'function' ? idOrUpdater(current) : idOrUpdater
+      const next = new URLSearchParams(prev)
+      if (id) next.set('task', String(id))
+      else next.delete('task')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -47,7 +59,10 @@ export default function DashboardPage({ theme, onToggleTheme }) {
     setTasks((prev) => prev.filter((t) => t.id !== id))
     setSelectedId((prev) => (prev === id ? null : prev))
   }
-  const selectedTask = tasks.find((t) => t.id === selectedId)
+  const handleDetailLoaded = useCallback((detail) => {
+    // Keeps the sidebar row in step with the detail poll, without waiting for the next list refresh.
+    setTasks((prev) => prev.map((t) => (t.id === detail.id ? { ...t, ...detail, runs: undefined } : t)))
+  }, [])
   return (
     <div className="app-shell view-fade-in">
       <header className="app-header">
@@ -90,12 +105,7 @@ export default function DashboardPage({ theme, onToggleTheme }) {
           />
         </div>
         <div className="app-column">
-          <AgentTrace
-            taskId={selectedId}
-            taskStatus={selectedTask?.status}
-            taskTitle={selectedTask?.title || selectedTask?.display_title}
-            theme={theme}
-          />
+          <AgentTrace taskId={selectedId} theme={theme} onTaskChanged={handleDetailLoaded} />
         </div>
       </main>
     </div>

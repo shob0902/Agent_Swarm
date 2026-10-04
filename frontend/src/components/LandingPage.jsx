@@ -3,10 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import './LandingPage.css'
 const STEPS = [
+  { agent: 'Analyzer', provider: 'deterministic · no LLM', blurb: 'Clones the repository and detects its stack — Python, Node.js or TypeScript — plus how it installs, builds, tests and lints.' },
   { agent: 'Planner', provider: 'Groq', blurb: 'Breaks your task description into an ordered, concrete implementation plan.' },
   { agent: 'Coder', provider: 'Groq · 2 keys', blurb: 'Rewrites the files the plan calls for, straight into your repo. The highest-volume agent, so it gets two keys and rotates between them least-recently-used first, cooling off any key that hits its rate limit.' },
-  { agent: 'Tester', provider: 'sandboxed · no LLM', blurb: 'Runs your real test suite in an isolated, network-disabled container and parses the result.' },
-  { agent: 'Reviewer', provider: 'Groq', blurb: 'Gives the final diff a fast sanity check against the plan before marking the task done.' },
+  { agent: 'Tester', provider: 'sandboxed · no LLM', blurb: 'Installs dependencies, then runs your real build, test suite and linter in an isolated, network-disabled container. Failures go straight back to the Coder.' },
+  { agent: 'Reviewer', provider: 'Groq', blurb: 'Reviews the change for correctness, conventions, regressions, unnecessary edits and security issues — rejecting it back to the Coder when needed.' },
+  { agent: 'Pull Request', provider: 'GitHub', blurb: 'Pushes a new branch, commits the validated change, and opens a pull request with the plan, test results and review. Never merges, never touches your default branch.' },
 ]
 export default function LandingPage({ theme, onToggleTheme }) {
   // Renders the hero, the four agent cards and the theme toggle, sending the user on to signup or the dashboard.
@@ -34,10 +36,9 @@ export default function LandingPage({ theme, onToggleTheme }) {
       <section className="landing-hero anim-fade-up" style={{ animationDelay: '0.08s' }}>
         <h1>Autonomous Coding Agent Swarm</h1>
         <p>
-          Hand it a task description and a public GitHub repo. Four cooperating agents —
-          Planner, Coder, Tester, and Reviewer — plan the change, write it, run your
-          real test suite in an isolated sandbox, retry on failure, and hand back a
-          reviewed diff. Every decision is logged and visible in a live agent trace,
+          Hand it a public GitHub repository and an improvement request. Cooperating agents —
+          Planner, Coder, Tester, and Reviewer — plan the change, write it, validate it in an
+          isolated sandbox, retry on failure, and open a reviewed pull request for you to merge. Every decision is logged and visible in a live agent trace,
           private to your account.
         </p>
         <button
@@ -62,7 +63,7 @@ export default function LandingPage({ theme, onToggleTheme }) {
         ))}
       </section>
       <section className="landing-footnote anim-fade-up" style={{ animationDelay: '0.5s' }}>
-        <p>Sandboxed execution (Docker, no network) · Django + Celery orchestrator · bounded retries on test failure</p>
+        <p>Runs on GitHub Actions · sandboxed execution (Docker, no network) · bounded retries on test failure and review rejection · human review before every merge</p>
       </section>
     </div>
   )

@@ -134,6 +134,11 @@ export default function TaskHistorySidebar({
                 <div className="history-item-title">{task.title || task.display_title}</div>
               )}
               <div className="history-item-repo">{task.github_url}</div>
+              {task.pr_url && (
+                <a className="history-item-pr" href={task.pr_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                  PR #{task.pr_number} ↗
+                </a>
+              )}
               <div className="history-item-actions">
                 <button type="button" className="neu-pressable history-action" onClick={(e) => toggleFavorite(task, e)} title={task.is_favorite ? 'Unfavorite' : 'Favorite'}>
                   {task.is_favorite ? '★' : '☆'}

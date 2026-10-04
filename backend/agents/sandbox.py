@@ -1,6 +1,7 @@
 # Runs untrusted generated code inside a throwaway Docker container with no network access.
 from __future__ import annotations
 import logging
+import os
 from dataclasses import dataclass
 import docker
 import docker.errors
@@ -19,13 +20,27 @@ class SandboxResult:
     exit_code: int
     logs: str
     timed_out: bool = False
+# Never pass host environment through; only these fixed values (plus the caller's explicit extras) reach the container.
+BASE_ENVIRONMENT = {
+    "HOME": "/tmp",
+    "CI": "true",
+    "npm_config_cache": "/tmp/.npm",
+    "npm_config_update_notifier": "false",
+    "COREPACK_HOME": "/tmp/.corepack",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "PIP_CACHE_DIR": "/tmp/.pip",
+    "PYTHONDONTWRITEBYTECODE": "1",
+}
 def run_in_sandbox(
     repo_path: str,
     command: list[str],
     timeout: int | None = None,
     image: str | None = None,
+    environment: dict[str, str] | None = None,
+    allow_network: bool = False,
 ) -> SandboxResult:
     # Runs the command against the repo mounted at /workspace and always tears the container down after.
+    # allow_network is only ever set for dependency installation; tests, builds and lint run offline.
     timeout = timeout or settings.SANDBOX_TIMEOUT_SECONDS
     image = image or settings.SANDBOX_IMAGE
     try:
@@ -40,8 +55,13 @@ def run_in_sandbox(
             volumes={repo_path: {"bind": "/workspace", "mode": "rw"}},
             working_dir="/workspace",
             detach=True,
-            mem_limit="512m",
-            network_disabled=True,
+            mem_limit=settings.SANDBOX_MEMORY_LIMIT,
+            network_disabled=not allow_network,
+            environment={**BASE_ENVIRONMENT, **(environment or {})},
+            user=_host_user(),
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges"],
+            pids_limit=512,
         )
     except docker.errors.ImageNotFound as exc:
         raise SandboxError(f"Sandbox image {image!r} not found and could not be pulled: {exc}") from exc
@@ -58,6 +78,11 @@ def run_in_sandbox(
         return SandboxResult(exit_code=wait_result.get("StatusCode", -1), logs=logs)
     finally:
         _force_remove(container)
+def _host_user() -> str | None:
+    # On Linux (e.g. the GitHub Actions runner) run as the host user so files written into the clone stay ours.
+    if hasattr(os, "getuid"):
+        return f"{os.getuid()}:{os.getgid()}"
+    return None
 def _force_kill(container) -> None:
     # Kills a container that overran its timeout, ignoring the case where it already exited.
     try:
