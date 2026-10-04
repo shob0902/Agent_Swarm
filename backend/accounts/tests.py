@@ -206,3 +206,50 @@ class UnexpectedSignInErrorTests(TestCase):
         self.assertIn("IntegrityError", response.json()["detail"])
         self.assertNotIn("secret_detail", response.json()["detail"])
         self.assertIn("secret_detail", "\n".join(logs.output))
+@override_settings(**OAUTH_SETTINGS)
+class GoogleSignatureVerificationTests(TestCase):
+    # Exercises allauth's real key download + X.509 parsing + RS256 check (the path that needs `cryptography`,
+    # which production lacked). Only the HTTP fetch of Google's certificate list is faked.
+    def setUp(self):
+        # A throwaway RSA key and self-signed certificate, published under a key id like Google's certs endpoint.
+        import datetime
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "accounts.google.test")])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(self.private_key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1)).sign(self.private_key, hashes.SHA256())
+        )
+        self.certs = {"test-kid": cert.public_bytes(serialization.Encoding.PEM).decode()}
+    def _post(self, signing_key):
+        # Signs an id_token with signing_key and runs the real Google login flow against the fake certs endpoint.
+        import time
+        import jwt
+        now = int(time.time())
+        claims = {"iss": "https://accounts.google.com", "aud": "google-id", "sub": "g-rs256", "email": "rs256@example.com",
+                  "email_verified": True, "name": "RS", "picture": "https://img.example/r.png", "iat": now, "exp": now + 3600}
+        id_token = jwt.encode(claims, signing_key, algorithm="RS256", headers={"kid": "test-kid"})
+        session = mock.MagicMock()
+        session.__enter__.return_value = session
+        session.get.return_value.json.return_value = self.certs
+        with mock.patch.object(OAuth2Client, "get_access_token", return_value={"access_token": "at", "id_token": id_token}), \
+                mock.patch("allauth.socialaccount.adapter.DefaultSocialAccountAdapter.get_requests_session", return_value=session):
+            return APIClient().post("/api/auth/google/", {"code": "c", "redirect_uri": "http://localhost:5173/auth/callback/google"}, format="json")
+    def test_correctly_signed_token_signs_in(self):
+        # The genuine path: certificate parsed, RS256 signature verified, account created.
+        response = self._post(self.private_key)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(get_user_model().objects.filter(email="rs256@example.com").exists())
+    def test_token_signed_by_another_key_is_rejected(self):
+        # A forged token (wrong key, right kid) fails signature verification with a 400, not a 500.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        forged_with = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        response = self._post(forged_with)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Signature verification failed", str(response.json()))
+        self.assertFalse(get_user_model().objects.exists())
