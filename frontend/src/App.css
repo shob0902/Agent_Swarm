@@ -1,9 +1,4 @@
-/* Layout for the dashboard shell: the header bar and the two-column grid, down to phone width. */
-.app-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 24px 64px;
-}
+/* Shared header bar used on the dashboard (page layout lives in pages/DashboardPage.css). */
 .app-header {
   display: flex;
   align-items: center;
@@ -14,37 +9,6 @@
 .app-header h1 {
   margin: 0;
   font-size: 22px;
-}
-.app-menu-toggle {
-  display: none;
-  padding: 8px 12px;
-  min-height: 44px;
-  min-width: 44px;
-}
-.app-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 420px) 1fr;
-  gap: 24px;
-  align-items: start;
-}
-.app-column {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
-@media (max-width: 860px) {
-  .app-menu-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .app-grid {
-    grid-template-columns: 1fr;
-  }
-  .app-shell {
-    padding: 20px 14px 48px;
-  }
 }
 @media (max-width: 480px) {
   .user-menu-name {

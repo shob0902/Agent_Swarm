@@ -18,8 +18,6 @@ export default function TaskHistorySidebar({
   onFilterChange,
   onTaskUpdated,
   onTaskDeleted,
-  mobileOpen,
-  onCloseMobile,
 }) {
   // Keeps track of which row is being renamed or is mid-request, and renders the list.
   const [editingId, setEditingId] = useState(null)
@@ -74,12 +72,9 @@ export default function TaskHistorySidebar({
     }
   }
   return (
-    <>
-      {mobileOpen && <div className="history-scrim" onClick={onCloseMobile} />}
-      <div className={`neu-raised history-sidebar${mobileOpen ? ' history-sidebar-open' : ''}`}>
+      <div className="neu-raised history-sidebar">
         <div className="history-header">
           <h2>Task History</h2>
-          <button type="button" className="neu-pressable history-close" onClick={onCloseMobile} aria-label="Close history">✕</button>
         </div>
         <input
           type="search"
@@ -170,7 +165,6 @@ export default function TaskHistorySidebar({
           ))}
         </div>
       </div>
-    </>
   )
 }
 const ACTION_PATHS = {

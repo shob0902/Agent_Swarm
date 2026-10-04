@@ -1,0 +1,298 @@
+/* n8n-style workflow canvas: dotted grid, stage nodes, attached sub-nodes, connectors, retry loops, zoom controls. */
+.flow-viewport {
+  position: relative;
+}
+.flow-scroll {
+  position: relative;
+  overflow: auto;
+  max-height: 560px;
+  cursor: default;
+  touch-action: pan-x pan-y;
+  border-radius: var(--radius-md);
+  box-shadow: inset 3px 3px 8px var(--shadow-dark), inset -3px -3px 8px var(--shadow-light);
+  background-color: var(--base);
+  background-image: radial-gradient(color-mix(in srgb, var(--text-muted) 35%, transparent) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+.flow-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+.flow-scroll::-webkit-scrollbar-track { background: transparent; }
+.flow-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  border-radius: 999px;
+}
+.flow-dragging { cursor: grabbing; user-select: none; }
+.flow-sizer {
+  position: relative;
+  margin: 0 auto;
+}
+.flow-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+/* Zoom toolbar, pinned to the canvas corner like n8n's */
+.flow-zoom {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--base);
+  box-shadow: 3px 3px 7px var(--shadow-dark), -3px -3px 7px var(--shadow-light);
+  z-index: 2;
+}
+.flow-zoom button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.flow-zoom button:hover:not(:disabled) { color: var(--text-primary); }
+.flow-zoom button:disabled { opacity: 0.4; cursor: not-allowed; }
+.flow-zoom button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.flow-zoom .flow-zoom-active {
+  color: var(--accent);
+  box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light);
+}
+.flow-zoom-level { min-width: 46px; font-variant-numeric: tabular-nums; }
+.flow-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+/* Connectors */
+.flow-edge {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.flow-edge-idle {
+  stroke: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  stroke-dasharray: 4 5;
+}
+.flow-edge-ready,
+.flow-edge-done {
+  stroke: var(--text-muted);
+}
+.flow-edge-done {
+  stroke: var(--success);
+}
+.flow-edge-flowing {
+  stroke: var(--info);
+  stroke-dasharray: 7 6;
+  animation: flow-dash 0.9s linear infinite;
+}
+.flow-arrow { fill: var(--text-muted); }
+.flow-arrow-idle { fill: color-mix(in srgb, var(--text-muted) 45%, transparent); }
+.flow-arrow-done { fill: var(--success); }
+.flow-arrow-flowing { fill: var(--info); }
+.flow-arrow-loop { fill: color-mix(in srgb, var(--text-muted) 55%, transparent); }
+.flow-arrow-loop-used { fill: var(--warning); }
+.flow-edge-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--text-secondary);
+  paint-order: stroke;
+  stroke: var(--base);
+  stroke-width: 4px;
+}
+/* Retry loops */
+.flow-loop {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+}
+.flow-loop-used {
+  stroke: var(--warning);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+.flow-loop-label {
+  font-size: 10.5px;
+  fill: var(--text-muted);
+  font-style: italic;
+  paint-order: stroke;
+  stroke: var(--base);
+  stroke-width: 4px;
+}
+.flow-loop-label-used {
+  fill: var(--warning);
+  font-style: normal;
+  font-weight: 700;
+}
+/* Sub-node links */
+.flow-sub-link {
+  stroke: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+.flow-sub-link-used { stroke: var(--text-muted); }
+.flow-port { fill: var(--base); stroke: var(--text-muted); stroke-width: 1.5; }
+.flow-sub-kind {
+  font-size: 10px;
+  fill: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+/* Shared node look */
+.flow-node,
+.flow-trigger,
+.flow-sub {
+  position: absolute;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--base);
+  border: 2px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
+  box-shadow: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+  cursor: pointer;
+  transition: border-color 0.25s var(--ease-cushion), box-shadow 0.25s var(--ease-cushion), transform 0.15s var(--ease-cushion);
+  -webkit-tap-highlight-color: transparent;
+}
+.flow-node:hover,
+.flow-trigger:hover { transform: translateY(-1px); }
+.flow-node:focus-visible,
+.flow-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.flow-selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent), 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+}
+/* Stage node: n8n-style square with the label underneath */
+.flow-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  color: var(--text-secondary);
+}
+.flow-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.flow-label strong {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.flow-label span {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.flow-label-running span { color: var(--info); font-weight: 600; }
+.flow-label-success span { color: var(--success); }
+.flow-label-failed span { color: var(--danger); font-weight: 600; }
+.flow-label-retrying span { color: var(--warning); font-weight: 600; }
+.flow-label-pending strong { color: var(--text-secondary); }
+.flow-node-count {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  color: var(--warning);
+  background: var(--base);
+  box-shadow: 2px 2px 4px var(--shadow-dark), -2px -2px 4px var(--shadow-light);
+}
+.flow-node-badge {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: transparent;
+}
+/* States */
+.flow-state-pending { border-style: dashed; }
+.flow-state-running {
+  border-color: var(--info);
+  animation: flow-glow 1.6s ease-in-out infinite;
+}
+.flow-state-running { color: var(--info); }
+.flow-state-success { border-color: var(--success); }
+.flow-state-success { color: var(--success); }
+.flow-state-success .flow-node-badge { background: var(--success); }
+.flow-state-failed { border-color: var(--danger); }
+.flow-state-failed { color: var(--danger); }
+.flow-state-failed .flow-node-badge { background: var(--danger); }
+.flow-state-retrying { border-color: var(--warning); }
+.flow-state-retrying { color: var(--warning); }
+.flow-state-retrying .flow-node-badge { background: var(--warning); }
+.flow-state-skipped { border-style: dashed; }
+.flow-state-skipped .flow-node-badge { background: var(--text-muted); }
+.flow-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--info) 30%, transparent);
+  border-top-color: var(--info);
+  animation: flow-spin 0.8s linear infinite;
+}
+/* Trigger: rounded on the left like n8n's trigger nodes */
+.flow-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 30px 14px 14px 30px;
+  color: var(--accent);
+}
+.flow-trigger.flow-state-success { border-color: var(--success); }
+.flow-trigger.flow-state-running { color: var(--info); }
+/* Attached sub-nodes (model / sandbox / tool) */
+.flow-sub {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-muted);
+  border-style: dashed;
+}
+.flow-sub-used { color: var(--text-secondary); border-style: solid; }
+.flow-sub-busy { color: var(--info); border-color: var(--info); }
+.flow-sub-name {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+@keyframes flow-dash { to { stroke-dashoffset: -26; } }
+@keyframes flow-spin { to { transform: rotate(360deg); } }
+@keyframes flow-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--info) 0%, transparent), 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--info) 22%, transparent), 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-edge-flowing,
+  .flow-state-running,
+  .flow-spinner { animation: none; }
+}

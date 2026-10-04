@@ -1,0 +1,217 @@
+/* Logs panel under the canvas: stage explanation, attempt list and per-attempt inputs/outputs. */
+.stage-details {
+  container-type: inline-size;
+  container-name: stage-details;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  box-shadow: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.stage-details-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.stage-details-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.stage-details-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  box-shadow: 2px 2px 5px var(--shadow-dark), -2px -2px 5px var(--shadow-light);
+}
+.stage-details-resource {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.stage-details-describe {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.stage-details-now {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.stage-state-running { color: var(--info); }
+.stage-state-success { color: var(--success); }
+.stage-state-failed { color: var(--danger); }
+.stage-state-retrying { color: var(--warning); }
+.stage-details-now.stage-state-pending,
+.stage-details-now.stage-state-skipped { color: var(--text-muted); }
+.stage-details-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.stage-details-body {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.stage-attempts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stage-attempt {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background: var(--base);
+  box-shadow: 3px 3px 6px var(--shadow-dark), -3px -3px 6px var(--shadow-light);
+  cursor: pointer;
+  text-align: left;
+}
+.stage-attempt > span:first-child { white-space: nowrap; }
+.stage-inline-spinner {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+.stage-attempt small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+}
+.stage-attempt-active {
+  box-shadow: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.stage-attempt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage-run {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.stage-field {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  font-size: 13px;
+  align-items: baseline;
+}
+.stage-field-label { color: var(--text-muted); }
+.stage-field-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.stage-field-value > ul,
+.stage-field-value > ol,
+.stage-field-value > table,
+.stage-field-value > pre { flex-basis: 100%; }
+.stage-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stage-steps li::marker { color: var(--accent); font-weight: 700; }
+.stage-tag {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  box-shadow: inset 1px 1px 2px var(--shadow-dark), inset -1px -1px 2px var(--shadow-light);
+}
+.stage-inline { color: var(--text-secondary); }
+.stage-request { white-space: pre-wrap; }
+.stage-checks {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.stage-checks th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+}
+.stage-checks td {
+  padding: 6px;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+}
+.stage-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px 12px;
+}
+.stage-checklist li { display: inline-flex; align-items: center; gap: 6px; }
+.stage-checklist .ok { color: var(--success); }
+.stage-checklist .bad { color: var(--danger); }
+.stage-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--danger);
+  box-shadow: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
+  overflow-wrap: anywhere;
+}
+.stage-pre,
+.stage-raw pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
+}
+.stage-raw summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+/* Adapt to the panel's own width (it can sit in a narrow column beside the Execution Log). */
+@container stage-details (max-width: 700px) {
+  .stage-details-body { grid-template-columns: 1fr; }
+  .stage-attempts { flex-direction: row; overflow-x: auto; padding: 2px 2px 6px; }
+  .stage-attempt { min-width: 150px; }
+}
+@container stage-details (max-width: 520px) {
+  .stage-field { grid-template-columns: 1fr; gap: 2px; }
+  .stage-details-resource { margin-left: 0; }
+}

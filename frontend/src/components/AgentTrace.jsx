@@ -96,15 +96,17 @@ export default function AgentTrace({ taskId, theme, onTaskChanged }) {
     )
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="trace-layout">
       <PipelineStatus
+        key={task.id}
         task={task}
         runs={runs}
         onTaskChanged={(t) => { setTask((prev) => ({ ...prev, ...t })); onTaskChanged?.(t) }}
         onRetried={(t) => { setTask((prev) => ({ ...prev, ...t })); onTaskChanged?.(t); setReloadKey((k) => k + 1) }}
       />
-      <div className="neu-raised" style={{ padding: 24 }}>
-        <h2 style={{ marginTop: 0 }}>Agent Execution Log — {task.title || task.display_title || `Task #${taskId}`}</h2>
+      <div className="neu-raised trace-log">
+        <h2 style={{ marginTop: 0, marginBottom: 4 }}>Execution Log</h2>
+        <p className="trace-log-subtitle">{task.title || task.display_title || `Task #${taskId}`}</p>
         {runs.length === 0 && (
           <p style={{ color: 'var(--text-muted)' }}>
             {task.status === 'queued' ? 'Waiting for the runner to pick up the task…' : 'Waiting for the pipeline to start…'}
@@ -193,7 +195,7 @@ export default function AgentTrace({ taskId, theme, onTaskChanged }) {
         </div>
       </div>
       {fileDiffs.length > 0 && (
-        <div className="neu-raised anim-fade-up" style={{ padding: 24 }}>
+        <div className="neu-raised anim-fade-up trace-changes">
           <h2 style={{ marginTop: 0 }}>Changes</h2>
           <DiffViewer fileDiffs={fileDiffs} theme={theme} />
         </div>

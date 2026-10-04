@@ -61,6 +61,11 @@
 .pipeline-step-failed .pipeline-step-icon {
   color: var(--danger);
 }
+.pipeline-hint {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
 .pipeline-pr-cta {
   align-self: flex-start;
   padding: 12px 22px;

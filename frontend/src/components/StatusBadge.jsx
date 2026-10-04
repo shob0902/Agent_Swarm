@@ -1,6 +1,7 @@
 // Small coloured status pill used by the task sidebar, the pipeline panel and the agent trace.
 const COLOR_BY_STATUS = {
   pending: 'var(--text-muted)',
+  running: 'var(--info)',
   queued: 'var(--text-muted)',
   analyzing: 'var(--info)',
   planning: 'var(--info)',
