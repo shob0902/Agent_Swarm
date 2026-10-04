@@ -7,8 +7,16 @@ env = environ.Env(
     DEBUG=(bool, True),
 )
 environ.Env.read_env(BASE_DIR / ".env")
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-secret-key")
+_DEV_SECRET_KEY = "dev-only-insecure-secret-key"
+SECRET_KEY = env("DJANGO_SECRET_KEY", default=_DEV_SECRET_KEY)
 DEBUG = env.bool("DEBUG", default=True)
+# The key signs login tokens; the dev default is public in this repo, so production must never run on it.
+if not DEBUG and (SECRET_KEY == _DEV_SECRET_KEY or len(SECRET_KEY) < 32):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Set DJANGO_SECRET_KEY to a long random value when DEBUG=False, e.g. "
+        "python -c \"import secrets; print(secrets.token_urlsafe(50))\""
+    )
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 # Render sets this to the service's own *.onrender.com hostname; allow it so a missing ALLOWED_HOSTS entry can't 400 the deploy.
 RENDER_EXTERNAL_HOSTNAME = env("RENDER_EXTERNAL_HOSTNAME", default="")
