@@ -8,8 +8,10 @@ const PROVIDER_NAME = { google: 'Google', github: 'GitHub' }
 function serverMessage(err) {
   // Pulls the most useful message out of a DRF error response.
   const data = err?.response?.data
+  if (err?.response?.status >= 500) return 'The server hit an error while signing you in. Please try again in a minute.'
   if (!data) return null
-  if (typeof data === 'string') return data.length < 300 ? data : null
+  // An HTML error page is not a message; never render markup as text.
+  if (typeof data === 'string') return data.length < 300 && !data.trimStart().startsWith('<') ? data : null
   const detail = Array.isArray(data.detail) ? data.detail[0] : data.detail
   return detail || data.non_field_errors?.[0] || Object.values(data).flat().find((v) => typeof v === 'string') || null
 }

@@ -11,7 +11,7 @@ services:
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     # Free instances have no pre-deploy hook, so migrations run at start (they're idempotent).
     startCommand: python manage.py migrate --noinput && gunicorn orchestrator.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
-    healthCheckPath: /admin/login/
+    healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
