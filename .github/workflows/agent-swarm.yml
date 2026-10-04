@@ -76,6 +76,10 @@ jobs:
             echo "::error title=Bad AGENT_SWARM_API_URL::It must be the API base ending in /api, e.g. https://your-service.onrender.com/api"
             missing=1
           fi
+          # The crash handler at the end can only report back to the API when these two exist.
+          if [ -n "$AGENT_SWARM_API_URL" ] && [ -n "$RUNNER_SHARED_SECRET" ]; then
+            echo "HAS_RUNNER_SECRETS=true" >> "$GITHUB_ENV"
+          fi
           exit $missing
 
       - name: Check out Agent Swarm
@@ -91,6 +95,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install backend dependencies
+        id: install
         run: pip install -r requirements.txt
 
       # Proves the runner can reach the API and that RUNNER_SHARED_SECRET matches the backend's, before any work.
@@ -122,9 +127,11 @@ jobs:
         run: python manage.py run_agent_task --task-id "$TASK_ID" --remote
 
       # If the job crashed, timed out or was cancelled before the pipeline recorded an outcome,
-      # mark the task failed so the dashboard doesn't show it as running forever.
+      # mark the task failed so the dashboard doesn't show it as running forever. Needs the code
+      # and dependencies (and the two secrets); if those never got set up, the dashboard's
+      # stale-task Retry covers it instead.
       - name: Record unfinished run
-        if: failure() || cancelled()
+        if: (failure() || cancelled()) && steps.install.outcome == 'success' && env.HAS_RUNNER_SECRETS == 'true'
         env:
           AGENT_SWARM_API_URL: ${{ secrets.AGENT_SWARM_API_URL }}
           RUNNER_SHARED_SECRET: ${{ secrets.RUNNER_SHARED_SECRET }}
